@@ -19,6 +19,7 @@ import {
 	type MessageDecorationSnapshot,
 } from "../features/messages/index.js";
 import {
+	decorateSkillInvocation,
 	renderSpecialMessageBlock,
 	restoreCompactionBackgrounds,
 	type SpecialBlockSubtype,
@@ -254,6 +255,12 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			fingerprint: "e2a2f648",
 			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
 		}),
+	]),
+	"native-skill-message:addMessageToChat": Object.freeze([
+		Object.freeze({ name: "addMessageToChat", arity: 2, fingerprint: "2ea6db1c", versions: Object.freeze(["0.85.0"]) }),
+		Object.freeze({ name: "addMessageToChat", arity: 2, fingerprint: "20dfc3c5", versions: Object.freeze(["0.85.0"]) }),
+		Object.freeze({ name: "addMessageToChat", arity: 2, fingerprint: "0dcccc85", versions: Object.freeze(["1.1.0"]) }),
+		Object.freeze({ name: "addMessageToChat", arity: 2, fingerprint: "5653f0d4", versions: Object.freeze(["1.1.0"]) }),
 	]),
 	"native-skill-message:updateDisplay": Object.freeze([
 		Object.freeze({
@@ -773,7 +780,7 @@ function surfaceDisabled(spec: TargetSpec, config: CompatibilityProbeOptions["co
 	if (spec.subtype === "native-assistant-message" && spec.method === "updateContent")
 		return !config.messages.hideThinkingLabel;
 	if (spec.subtype === "native-compaction-transcript") return !config.messages.preserveCompactionTranscript;
-	if (isSpecialBlock(spec)) return !config.messages.specialBlocks;
+	if (isSpecialBlock(spec) || spec.subtype === "native-skill-message") return !config.messages.specialBlocks;
 	return true;
 }
 
@@ -828,6 +835,8 @@ function probeSpec(options: {
 				return decorateMessageRender(original, target, args, messageSnapshot);
 			}
 			if (spec.subtype === "native-compaction-transcript") return decorateCompactionTranscript(original, target, args);
+			if (spec.subtype === "native-skill-message" && spec.method === "addMessageToChat")
+				return decorateSkillInvocation(original, target, args);
 			return renderSpecialMessageBlock(spec.subtype as SpecialBlockSubtype, original, target, args);
 		},
 	});
@@ -887,6 +896,15 @@ export const targetSpecs: readonly TargetSpec[] = [
 		target: SkillInvocationMessageComponent.prototype,
 		method: "updateDisplay",
 		adapterId: "message-block-boxed-v1",
+		status: "certified",
+	},
+	{
+		feature: "messages",
+		subtype: "native-skill-message",
+		target: InteractiveMode.prototype,
+		method: "addMessageToChat",
+		arity: 2,
+		adapterId: "skill-inline-prompt-v1",
 		status: "certified",
 	},
 	{

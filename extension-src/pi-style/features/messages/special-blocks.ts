@@ -8,8 +8,8 @@
 
 import { keyText } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Markdown, type MarkdownTheme, MouseRegion } from "@earendil-works/pi-tui";
-import { bgHexAnsi, isHexColor, stripAnsi, truncateAnsi, wrapAnsiBackground } from "../../shared/ansi.js";
+import { Markdown, type MarkdownTheme, MouseRegion, sliceByColumn } from "@earendil-works/pi-tui";
+import { bgHexAnsi, isHexColor, stripAnsi, truncateAnsi, visibleWidth, wrapAnsiBackground } from "../../shared/ansi.js";
 import type { BoxTheme } from "../../shared/box.js";
 import { getThemeExtra, setFullTheme } from "../../shared/theme-extras.js";
 import { renderBoxedMessageBlock } from "./boxed-block.js";
@@ -192,17 +192,111 @@ function patchSkill(instance: MessageBlockInstance, _original: () => void, theme
 	const markdownTheme = instance.markdownTheme as MarkdownTheme | undefined;
 
 	const body = expanded && content && markdownTheme ? createMarkdownBody(content, markdownTheme, theme) : () => [];
-
-	const block = renderBoxedMessageBlock(theme, {
-		kind: "Skill",
-		title: skillName,
-		...(expanded ? {} : { right: expandHint() }),
-		body,
-		icon: "⊟",
-		hasDivider: expanded,
-	});
+	const block: Component = {
+		invalidate() {},
+		render(width) {
+			if (width <= 0) return [];
+			const label = expanded ? `▾ ${skillName} · skill instructions` : `[${skillName}]`;
+			const lines = [theme.fg("accent", truncateAnsi(label, width, "…"))];
+			if (expanded && width > 2) {
+				lines.push(...body(width - 2).map((line) => `${theme.fg("dim", "│ ")}${line}`));
+			}
+			return lines;
+		},
+	};
 	instance.addChild(clickToggleRegion(instance, block));
 	return true;
+}
+
+/** Combine only the components emitted by certified native user routing.
+ * The native prompt component keeps Markdown, transforms, padding and OSC zones;
+ * neither prompt text nor the session message sent to the model is rewritten. */
+export function decorateSkillInvocation(original: unknown, instance: object, args: unknown[]): unknown {
+	const target = instance as { chatContainer?: { children: Component[] } };
+	const chat = target.chatContainer;
+	const start = chat?.children.length ?? 0;
+	const result = Reflect.apply(original as (...args: unknown[]) => unknown, instance, args);
+	if (!cachedTheme || !chat || (args[0] as { role?: unknown } | undefined)?.role !== "user") return result;
+	const appended = chat.children.slice(start);
+	const skill = appended.find(
+		(child) => typeof (child as unknown as MessageBlockInstance).skillBlock?.name === "string",
+	) as (Component & MessageBlockInstance) | undefined;
+	const user = appended.at(-1) as (Component & { text?: string; rebuild?(): void }) | undefined;
+	const prompt = (skill?.skillBlock as { userMessage?: unknown } | undefined)?.userMessage;
+	if (
+		!skill ||
+		!user ||
+		user === skill ||
+		typeof prompt !== "string" ||
+		!prompt ||
+		user.text !== prompt ||
+		typeof user.rebuild !== "function" ||
+		typeof skill.setExpanded !== "function"
+	)
+		return result;
+	const skillIndex = chat.children.indexOf(skill, start);
+	// Native routing emits exactly skill, spacer, prompt. Never consume unrelated children.
+	if (chat.children.length !== skillIndex + 3) return result;
+	const badge = `[${skill.skillBlock?.name}]`;
+	let badgeBounds: { x: number; y: number; width: number } | undefined;
+	const combined = new MouseRegion(
+		{
+			invalidate() {
+				user.invalidate();
+				skill.invalidate();
+			},
+			render(width) {
+				badgeBounds = undefined;
+				if (!cachedTheme) return [...skill.render(width), "", ...user.render(width)];
+				const badgeWidth = visibleWidth(badge) + 1;
+				let lines: string[];
+				if (width < badgeWidth + 16) {
+					// A badge must not leave an unusably narrow Markdown column.
+					lines = [cachedTheme.fg("accent", truncateAnsi(badge, width, "…")), ...user.render(width)];
+					badgeBounds = { x: 0, y: 0, width: Math.min(width, badgeWidth - 1) };
+				} else {
+					// Reserve badge space before native rendering rather than rewriting the
+					// Markdown source (which would break headings, lists and code fences).
+					lines = [...user.render(width - badgeWidth)];
+					const y = lines.findIndex((line) => stripAnsi(line).trim().length > 0);
+					const line = lines[y];
+					if (line !== undefined) {
+						const x = stripAnsi(line).length - stripAnsi(line).trimStart().length;
+						const prefix = sliceByColumn(line, 0, x);
+						const suffix = sliceByColumn(line, x, width);
+						const label = cachedTheme.fg("accent", `${badge} `);
+						lines[y] = `${prefix}${cachedTheme.bg?.("userMessageBg", label) ?? label}${suffix}`;
+						badgeBounds = { x, y, width: badgeWidth - 1 };
+					}
+				}
+				lines = lines.map((line) => {
+					const pad = " ".repeat(Math.max(0, width - visibleWidth(line)));
+					const fill = cachedTheme?.bg?.("userMessageBg", pad) ?? pad;
+					const zoneEnd = line.indexOf("\x1b]133;B\x07");
+					return zoneEnd < 0 ? line + fill : line.slice(0, zoneEnd) + fill + line.slice(zoneEnd);
+				});
+				return skill.expanded ? [...lines, ...skill.render(width)] : lines;
+			},
+		},
+		(event) => {
+			if (
+				!cachedTheme ||
+				event.type !== "click" ||
+				event.button !== "left" ||
+				!badgeBounds ||
+				event.y !== badgeBounds.y ||
+				event.x < badgeBounds.x ||
+				event.x >= badgeBounds.x + badgeBounds.width
+			)
+				return undefined;
+			skill.setExpanded?.(!skill.expanded);
+			return { handled: true };
+		},
+	);
+	// Pi's global Ctrl+O discovers expandable children structurally.
+	const expandable = Object.assign(combined, { setExpanded: (expanded: boolean) => skill.setExpanded?.(expanded) });
+	chat.children.splice(skillIndex, 3, expandable);
+	return result;
 }
 
 function patchBranch(instance: MessageBlockInstance, _original: () => void, theme: BoxTheme): boolean {

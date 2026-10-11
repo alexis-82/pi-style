@@ -28,6 +28,20 @@ continuation aligned here
 
 Rules: no prefix is applied to user messages (the feature and its `messages.userPrefix` option were removed); native user-message background/text tokens remain the base; long content wraps (never truncates); images/attachments preserve native rendering. User messages are never patched: the certified `native-user-message` surface was removed, so only assistant and special-block message surfaces are certified.
 
+### Skill invocations
+
+On certified native user-routing surfaces, a skill and its accompanying prompt
+render together: `[team-lead] Implement this…`. The badge uses the accent color;
+only the badge is clickable. Ctrl+O also toggles the skill instructions, which
+appear below the prompt with a lightweight `│` rail instead of a box.
+
+The native user component still owns Markdown, transformers, padding and OSC
+zones. Badge space is reserved before rendering; neither prompt text nor session
+messages are rewritten. Very narrow terminals place the badge above the prompt.
+Skill-only invocations use a compact badge. Uncertified routing keeps separate
+components with the compact skill renderer; removing the session theme restores
+native presentation. Ordinary user-message prototypes remain untouched.
+
 ### User-prompt image previews
 
 Images attached to the user's prompt render as **inline previews** directly below the user message ([ADR 0008](../decisions/0008-user-prompt-image-previews.md)). The surface absorbs the presentation half of `@pi-archimedes/image-paste` while fixing its channel: previews are display-only **CustomEntries** (`appendEntry`, documented as not sent to the LLM), not custom messages — so no image bytes ride the session's context pipeline.

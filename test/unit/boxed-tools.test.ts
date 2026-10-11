@@ -1028,7 +1028,7 @@ describe("boxed tool decoration owner", () => {
 });
 
 describe("special message blocks", () => {
-	it("renders skill, compaction, branch, and custom blocks boxed with a theme", () => {
+	it("renders compact skills and boxed compaction, branch, and custom blocks with a theme", () => {
 		installSpecialBlockAdapters();
 		setSpecialBlockTheme(theme);
 		const skillBlock = parseSkillBlock('<skill name="fixture" location="/fake">\ncontent **rich**\n</skill>');
@@ -1052,10 +1052,10 @@ describe("special message blocks", () => {
 				undefined,
 			),
 		];
-		const expectations = ["Compaction", "Branch", "Skill", "mcp_tool"];
+		const expectations = ["Compaction", "Branch", "[fixture]", "mcp_tool"];
 		for (const [index, component] of components.entries()) {
 			const lines = component.render(80);
-			expect(lines.join("\n")).toContain("╭");
+			expect(lines.join("\n").includes("╭")).toBe(index !== 2);
 			expect(lines.join("\n")).toContain(expectations[index] ?? "");
 			assertFit(lines, 80);
 		}

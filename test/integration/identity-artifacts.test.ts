@@ -59,6 +59,7 @@ function certifyAgainst(module: Record<string, unknown>, version: string): strin
 }
 
 function protoNameFor(key: string): string {
+	if (key === "native-skill-message:addMessageToChat") return "InteractiveMode";
 	const map: Record<string, string> = {
 		"native-assistant-message": "AssistantMessageComponent",
 		"native-compaction-transcript": "InteractiveMode",

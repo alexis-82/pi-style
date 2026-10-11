@@ -153,17 +153,19 @@ describe("identity-certified compatibility probe", () => {
 	it.each([
 		// Core/message/tool surfaces are default-on (fingerprint-certified, fail-closed,
 		// conflict-preserving); explicit flags and the ASCII override still work.
-		[{}, 10],
+		[{}, 11],
 		[{ "pi-style-core-patches": false }, 0],
-		[{ "pi-style-ascii": true }, 10],
-		[{ "pi-style-tools": false }, 7],
+		[{ "pi-style-ascii": true }, 11],
+		[{ "pi-style-tools": false }, 8],
 		[{ "pi-style-message-special-blocks": false }, 6],
 	] as const)("enables certified surfaces by default with explicit flag overrides %#", async (flags, expected) => {
 		const host = new FakePiHost({ flags });
 		piStyleExtension(host.extensionApi);
 		await host.sessionStart();
 		expect(
-			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
+			targetSpecs.filter((spec) =>
+				getCompatibilityRecords(spec.target).some((record) => record.method === spec.method && !record.disposed),
+			).length,
 		).toBe(expected);
 		await host.sessionShutdown();
 	});
@@ -174,6 +176,8 @@ describe("identity-certified compatibility probe", () => {
 	it("records a certified identity for every surface on each supported Pi build", () => {
 		for (const version of SUPPORTED_PI_VERSIONS) {
 			for (const spec of targetSpecs) {
+				// The new inline route is deliberately certified only on inspected artifacts.
+				if (spec.adapterId === "skill-inline-prompt-v1") continue;
 				const key = `${spec.subtype}:${spec.method}`;
 				const identities = KNOWN_NATIVE_IDENTITIES[key] ?? [];
 				expect(
@@ -187,14 +191,14 @@ describe("identity-certified compatibility probe", () => {
 		const bundledKeys = Object.keys(KNOWN_NATIVE_IDENTITIES).filter((key) =>
 			(KNOWN_NATIVE_IDENTITIES[key] ?? []).some((identity) => identity.versions.includes("0.84.3")),
 		);
-		expect(bundledKeys).toHaveLength(targetSpecs.length);
+		expect(bundledKeys).toHaveLength(targetSpecs.length - 1);
 	});
 
 	it("records every attempted subtype and delegates real native targets", () => {
 		initTheme("dark", false);
 		const markers = new Set<string>();
 		const report = probePiCompatibility("0.83.0", markers);
-		expect(report.recordSnapshots).toHaveLength(10);
+		expect(report.recordSnapshots).toHaveLength(11);
 		expect(report.recordSnapshots.every((record) => record.piVersion === "0.83.0")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.shape === "installed")).toBe(true);
 		expect(report.recordSnapshots.every((record) => record.disposed === false)).toBe(true);
@@ -521,8 +525,10 @@ describe("identity-certified compatibility probe", () => {
 		piStyleExtension(host.extensionApi);
 		await host.sessionStart();
 		expect(
-			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(10);
+			targetSpecs.filter((spec) =>
+				getCompatibilityRecords(spec.target).some((record) => record.method === spec.method && !record.disposed),
+			).length,
+		).toBe(11);
 		await host.sessionShutdown();
 		// Tier C patches are retained across session switches (Pi renders the restored
 		// chat with renderBeforeBind before the next session_start, which restores and
@@ -530,8 +536,10 @@ describe("identity-certified compatibility probe", () => {
 		expect(targetSpecs.every((spec) => getCompatibilityRecords(spec.target).length > 0)).toBe(true);
 		await host.sessionStart();
 		expect(
-			targetSpecs.filter((spec) => getCompatibilityRecords(spec.target).some((record) => !record.disposed)).length,
-		).toBe(10);
+			targetSpecs.filter((spec) =>
+				getCompatibilityRecords(spec.target).some((record) => record.method === spec.method && !record.disposed),
+			).length,
+		).toBe(11);
 		await host.sessionShutdown();
 
 		// OFF switch: `compatibility.allowCorePatches: false` in config denies all core patches.
@@ -606,7 +614,7 @@ describe("identity-certified compatibility probe", () => {
 		// every surface whose runtime identity matches a recorded fingerprint.
 		for (const version of [undefined, "9.9.9"]) {
 			const report = probePiCompatibility(version);
-			expect(report.recordSnapshots).toHaveLength(10);
+			expect(report.recordSnapshots).toHaveLength(11);
 			expect(report.recordSnapshots.every((record) => record.shape === "installed")).toBe(true);
 			expect(report.unsupported).toHaveLength(0);
 			// Certified surfaces carry the matched pre-install identity in the certificate.
@@ -635,8 +643,8 @@ describe("identity-certified compatibility probe", () => {
 		});
 		try {
 			const report = probePiCompatibility("0.85.0");
-			expect(report.recordSnapshots).toHaveLength(10);
-			expect(report.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(9);
+			expect(report.recordSnapshots).toHaveLength(11);
+			expect(report.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(10);
 			expect(report.recordSnapshots.find((record) => `${record.subtype}:${record.method}` === key)?.shape).toBe(
 				"unsupported",
 			);
@@ -758,7 +766,7 @@ describe("identity-certified compatibility probe", () => {
 		disposePiCompatibilityProbe(report);
 		expect(descriptors()).toEqual(beforeDescriptors);
 		const replacement = probePiCompatibility("0.83.0");
-		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(10);
+		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(11);
 		expect(markers).not.toContain("native-assistant-message:delegated");
 		const snapshots: readonly CompatibilityRecordSnapshot[] = report.recordSnapshots;
 		expect(snapshots.every((record) => record.generation > 0)).toBe(true);
@@ -778,7 +786,7 @@ describe("identity-certified compatibility probe", () => {
 
 		retainPiCompatibilityProbe(active);
 		const replacement = probePiCompatibility("0.83.0");
-		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(10);
+		expect(replacement.recordSnapshots.filter((record) => record.shape === "installed")).toHaveLength(11);
 		disposePiCompatibilityProbe(replacement);
 		expect(descriptors()).toEqual(beforeDescriptors);
 	});
