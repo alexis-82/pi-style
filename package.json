@@ -21,6 +21,7 @@
     "theme"
   ],
   "pi": {
+    "image": "https://raw.githubusercontent.com/quanpersie2001/pi-style/refs/heads/main/assets/demo.png",
     "extensions": [
       "./extension-src/pi-style/pi/index.ts"
     ],
