@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.7] - 2026-10-12
+
+### Features
+
+- *(messages)* Render skill invocations as inline prompt badges
+
+### Miscellaneous Tasks
+
+- Add demo image to package gallery
+
 ## [0.5.5] - 2026-10-09
 
 ### Bug Fixes
