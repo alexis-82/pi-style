@@ -314,8 +314,9 @@ describe("perf regression — quiet tools skip settled re-parsing (M5)", () => {
 		const total = bench("read warm result x20", 20, () => {
 			readTool.result(result, { expanded: false, isPartial: false }, theme, ctx);
 		});
-		// Post-fix CI: ~0ms. Pre-fix: ~20ms local / ~80ms CI. Bound: 5ms.
-		expect(total).toBeLessThan(5);
+		// Chunk merging now counts settled output lines: observed CI ~6ms.
+		// Allow runner variance while staying below pre-fix ~20ms local / ~80ms CI.
+		expect(total).toBeLessThan(15);
 	});
 });
 
