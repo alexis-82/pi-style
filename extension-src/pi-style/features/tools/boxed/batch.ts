@@ -81,6 +81,9 @@ export interface BatchMember {
 	status: BatchMemberStatus;
 	isError: boolean;
 	errorText?: string;
+	noticeText?: string;
+	resultText?: string;
+	receiptText?: string;
 	/** Effective mode for optional pi-teams dispatches, when the runtime confirms it. */
 	effectiveMode?: "background" | "foreground";
 	/** find glob pattern (header detail for output panels). */
@@ -333,6 +336,9 @@ export interface BatchResultData {
 	readonly isPartial: boolean;
 	readonly isError: boolean;
 	readonly errorText: string | undefined;
+	readonly noticeText?: string;
+	readonly resultText?: string;
+	readonly receiptText?: string;
 	/** Parsed output entries (ls/find) stored on the member for tree rendering. */
 	readonly entries?: string[];
 	/** Actual output line count of a settled read result (truncation details or
@@ -374,12 +380,21 @@ export function registerBatchResult(
 			member.status !== nextStatus ||
 			member.isError !== nextIsError ||
 			member.errorText !== (nextIsError ? data.errorText : undefined) ||
+			member.noticeText !== data.noticeText ||
+			member.resultText !== data.resultText ||
+			member.receiptText !== data.receiptText ||
 			(data.entries !== undefined && member.outputEntries !== data.entries) ||
 			(refinedEnd !== undefined && member.chunk?.end !== refinedEnd);
 		member.status = nextStatus;
 		member.isError = nextIsError;
 		if (member.isError && data.errorText !== undefined) member.errorText = data.errorText;
 		else delete member.errorText;
+		if (data.noticeText !== undefined) member.noticeText = data.noticeText;
+		else delete member.noticeText;
+		if (data.resultText !== undefined) member.resultText = data.resultText;
+		else delete member.resultText;
+		if (data.receiptText !== undefined) member.receiptText = data.receiptText;
+		else delete member.receiptText;
 		if (data.entries !== undefined) member.outputEntries = data.entries;
 		if (refinedEnd !== undefined && member.chunk) member.chunk = { ...member.chunk, end: refinedEnd };
 		if (changed) bumpBatchRevision(batch);

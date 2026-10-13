@@ -152,6 +152,10 @@ export function noteTurnMemberExpansion(toolCallId: string, expansion: MemberExp
 		turn.forcedOpen = false;
 }
 
+export function isTurnMemberExpanded(toolCallId: string): boolean {
+	return expansionByCallId.get(toolCallId)?.isExpanded() === true;
+}
+
 export function effectiveTurnExpansion(toolCallId: string, expanded: boolean): boolean {
 	if (expansionByCallId.has(toolCallId)) return expanded;
 	return expanded || getTurnEntry(toolCallId)?.turn.forcedOpen === true;

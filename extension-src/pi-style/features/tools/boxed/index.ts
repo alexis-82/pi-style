@@ -18,12 +18,13 @@ import { getQuickEditToolConfig, quickEditTool } from "./quick-edit.js";
 import { readTool } from "./read.js";
 import { getStateElapsedMs, getToolsRenderConfig, recordExecutionEnded, stopElapsedTicker } from "./session-config.js";
 import type { BoxedToolContext, BoxedToolDefinition } from "./shared.js";
-import { agentTool, getAgentResultTool, sendMessageTool, steerTool, teamTaskTools } from "./teams.js";
+import { agentTool, getAgentResultTool, sendMessageTool, steerTool, TEAM_TOOL_NAMES, teamTaskTools } from "./teams.js";
 import {
 	effectiveTurnExpansion,
 	emptyTurnResult,
 	getTurnEntry,
 	isMutatingTool,
+	isTurnMemberExpanded,
 	noteTurnMemberElapsed,
 	noteTurnMemberRender,
 	renderTurnSummaryCall,
@@ -68,14 +69,7 @@ export function hasBoxedRenderer(toolName: unknown): boolean {
  */
 function collapsedTurnFor(toolCallId: string, expanded: boolean, toolName: unknown): TurnState | undefined {
 	// The compact team receipts remain visible after the run-wide summary closes.
-	if (
-		toolName === "Agent" ||
-		toolName === "get_subagent_result" ||
-		toolName === "steer_subagent" ||
-		toolName === "send_message" ||
-		(typeof toolName === "string" && toolName.startsWith("team_task_"))
-	)
-		return undefined;
+	if (typeof toolName === "string" && (toolName === "Agent" || TEAM_TOOL_NAMES.has(toolName))) return undefined;
 	const config = getToolsRenderConfig();
 	if (expanded || !config.collapseAfterTurn) return undefined;
 	const entry = getTurnEntry(toolCallId);
@@ -89,8 +83,24 @@ function collapsedTurnFor(toolCallId: string, expanded: boolean, toolName: unkno
 	return entry.turn;
 }
 
-function summaryLeaderId(turn: TurnState): string {
-	return getToolsRenderConfig().mergedTurnSummary ? (turn.members[0]?.toolCallId ?? "") : turn.leaderId;
+function summaryLeaderId(turn: TurnState, keepExpandedOwner = false): string {
+	const config = getToolsRenderConfig();
+	const configuredLeader = config.mergedTurnSummary ? (turn.members[0]?.toolCallId ?? "") : turn.leaderId;
+	// Merged thought labels disclose the whole run independently of a tool row.
+	if (hasMergedThoughtLabel(turn)) return configuredLeader;
+	const eligible = (member: TurnState["members"][number]): boolean => {
+		return (
+			!TEAM_TOOL_NAMES.has(member.toolName) &&
+			(keepExpandedOwner || !isTurnMemberExpanded(member.toolCallId)) &&
+			(config.mergedTurnSummary ||
+				(!member.isError && (!isMutatingTool(member.toolName) || config.collapseMutatingTools)))
+		);
+	};
+	// Keep exempt team receipts visible, but put the disclosure on a tool that
+	// the active collapse policy will actually hide.
+	const configuredMember = turn.members.find((member) => member.toolCallId === configuredLeader);
+	if (configuredMember && eligible(configuredMember)) return configuredLeader;
+	return turn.members.find(eligible)?.toolCallId ?? configuredLeader;
 }
 
 function hasMergedThoughtLabel(turn: TurnState): boolean {
@@ -139,7 +149,7 @@ export function renderBoxedToolCall(
 		entry.turn.forcedOpen &&
 		expanded &&
 		!hasMergedThoughtLabel(entry.turn) &&
-		summaryLeaderId(entry.turn) === context.toolCallId
+		summaryLeaderId(entry.turn, true) === context.toolCallId
 	) {
 		const child = tool ? tool.call(args, theme, context) : renderFallbackCall(toolName, args, theme, context);
 		return renderTurnToggleRow(theme, entry.turn, child);
