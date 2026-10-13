@@ -65,7 +65,7 @@ Paint backgrounds only across cells owned by the component; never assume the ter
 
 ### Compaction card background
 
-`extras.compactionBgColor` is an optional neutral surface override for Compaction only. It accepts a hex color or a theme variable/color reference. The default is empty; missing/invalid values use Pi's `userMessageBg`, never a tool status token. Titanium uses `darkTitanium` (`#0f1216`); titanium-light uses `userMsgBg` (`#e8e8e8`). Resolution is cached outside render; truecolor and 256-color terminals are supported. Themes without background styling retain the card layout without a fill. Other special blocks keep their native `customMessageBg`.
+The Compaction fill is a neutral message surface, never a tool status token: it comes from Pi's `userMessageBg` token. The extension also honors an optional `extras.compactionBgColor` override (hex or theme variable/color reference) when the active theme file provides one; missing/invalid values fall back to `userMessageBg`. The bundled themes carry no `extras`: Pi's theme schema (enforced at startup since 1.2.0) sets `additionalProperties: false` and rejects unknown top-level keys. Their `userMessageBg` values — `darkTitanium` (`#0f1216`) in titanium, `userMsgBg` (`#e8e8e8`) in titanium-light — match the fills previously set through extras. Resolution is cached outside render; truecolor and 256-color terminals are supported. Themes without background styling retain the card layout without a fill. Other special blocks keep their native `customMessageBg`.
 
 ## Terminal-global background synchronization
 
@@ -85,7 +85,7 @@ Foreground/background colors are removed; labels, prefixes, borders, and state t
 
 ## Theme resources
 
-Optional complete Pi themes ship under `themes/` (`titanium.json`, `titanium-light.json`) and are auto-applied through `theme.autoApply`; the extension still works with any active theme through semantic mapping when auto-apply is off.
+Optional complete Pi themes ship under `themes/` (`titanium.json`, `titanium-light.json`) and are auto-applied through `theme.autoApply`; the extension still works with any active theme through semantic mapping when auto-apply is off. Both stay within Pi's theme schema (`https://pi.dev/schemas/theme.schema.json`) — `name`, `vars`, `colors`, `export`, no `extras` — so they load on runtimes that validate theme JSON at startup and reject unknown top-level keys.
 
 ## Theme requirements
 

@@ -90,6 +90,29 @@ describe("pi-style extension lifecycle foundation", () => {
 		expect(host.appendedEntries).toHaveLength(0);
 	});
 
+	it("custom triggerTurn runs neither stage nor clear a pending preview (1.2 union)", async () => {
+		const host = new FakePiHost();
+		piStyleExtension(host.extensionApi);
+		// 1.2 user run: the discriminated shape stages like the legacy flat one.
+		await host.emit("before_agent_start", {
+			type: "before_agent_start",
+			messageType: "user",
+			images: [{ type: "image", data: "pending", mimeType: "image/png" }],
+		});
+		// A custom run (sendMessage triggerTurn) starting before the flush fires
+		// the same event type without prompt images — it must not erase the slot.
+		await host.emit("before_agent_start", { type: "before_agent_start", messageType: "custom" });
+		await host.emit("message_start", { type: "message_start", message: { role: "user", content: [] } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(host.appendedEntries).toHaveLength(1);
+		expect(host.appendedEntries[0]?.data).toEqual({ images: [{ data: "pending", mimeType: "image/png" }] });
+		// A bare custom run never stages previews by itself.
+		await host.emit("before_agent_start", { type: "before_agent_start", messageType: "custom" });
+		await host.emit("message_start", { type: "message_start", message: { role: "user", content: [] } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(host.appendedEntries).toHaveLength(1);
+	});
+
 	it("message_start closes the active quiet-tool batch", async () => {
 		const host = new FakePiHost();
 		piStyleExtension(host.extensionApi);

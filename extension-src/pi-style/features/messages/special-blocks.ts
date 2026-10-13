@@ -68,6 +68,8 @@ interface MessageBlockInstance {
 	box?: { clear(): void; addChild(child: unknown): void };
 	customComponent?: unknown;
 	customRenderer?: unknown;
+	/** Native 1.1.0+ forwards the component's output pad to custom renderers (default 1). */
+	outputPad?: unknown;
 	clear?(): void;
 	addChild(child: unknown): void;
 	removeChild(child: unknown): void;
@@ -349,9 +351,13 @@ function patchCustomMessage(instance: MessageBlockInstance, _original: () => voi
 	// Try custom renderer first, but keep the special block shell/background owned here.
 	if (typeof instance.customRenderer === "function") {
 		try {
+			// Mirror the native options bag: 1.1.0+ renderers receive the component's
+			// outputPad next to the expanded state. Hosts without the field keep Pi's
+			// native default of 1, so a renderer consuming the option sees the same
+			// pad the host would render with.
 			const component = (instance.customRenderer as (message: unknown, options: object, theme: unknown) => unknown)(
 				instance.message,
-				{ expanded: instance._expanded },
+				{ expanded: instance._expanded, outputPad: instance.outputPad ?? 1 },
 				theme,
 			);
 			if (component && typeof (component as { render?: unknown }).render === "function") {

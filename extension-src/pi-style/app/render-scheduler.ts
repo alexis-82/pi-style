@@ -17,6 +17,12 @@ export class RenderScheduler {
 	schedule(kind: UpdateClass): void {
 		if (this.stopped || !this.isCurrent(this.generation)) return;
 		if (kind === "immediate") {
+			// The immediate frame already presents current state: older presentation
+			// timers would only request the same repaint again. Keep retries separate.
+			if (this.coalescedTimer !== undefined) clearTimeout(this.coalescedTimer);
+			if (this.deferredTimer !== undefined) clearTimeout(this.deferredTimer);
+			this.coalescedTimer = undefined;
+			this.deferredTimer = undefined;
 			if (this.immediateQueued) return;
 			this.immediateQueued = true;
 			queueMicrotask(() => {
@@ -25,6 +31,7 @@ export class RenderScheduler {
 			});
 			return;
 		}
+		if (this.immediateQueued && kind !== "delayed-retry") return;
 		const target = kind === "coalesced" ? "coalescedTimer" : kind === "deferred" ? "deferredTimer" : "retryTimer";
 		if (this[target] !== undefined) return;
 		const delay = kind === "coalesced" ? 16 : kind === "deferred" ? 50 : 100;

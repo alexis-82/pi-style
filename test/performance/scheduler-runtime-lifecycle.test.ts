@@ -20,6 +20,24 @@ describe("scheduler timers and fake-host runtime resources", () => {
 		expect(vi.getTimerCount()).toBe(0);
 	});
 
+	it("immediate input repaint supersedes pending presentation timers but preserves retries", async () => {
+		vi.useFakeTimers();
+		let renders = 0;
+		const scheduler = new RenderScheduler({ requestRender: () => renders++ }, 1);
+		scheduler.schedule("coalesced");
+		scheduler.schedule("deferred");
+		scheduler.schedule("delayed-retry");
+		scheduler.schedule("immediate");
+		scheduler.schedule("coalesced");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(renders).toBe(1);
+		await vi.advanceTimersByTimeAsync(50);
+		expect(renders).toBe(1);
+		await vi.advanceTimersByTimeAsync(50);
+		expect(renders).toBe(2);
+		scheduler.cancel();
+	});
+
 	it("repeated fake-host sessions restore widgets, handlers, factories, and terminal subscriptions", async () => {
 		// The assertion scope is fake-host resources; Git cache and late completion
 		// behavior are covered by the dedicated provider tests.

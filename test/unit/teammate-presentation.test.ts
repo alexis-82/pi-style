@@ -434,6 +434,27 @@ describe("public pi-teams tool renderer resolver (Pi 1.0.4)", () => {
 		expect(plain(leader.render(100))[0]).toBe("● Spawn 2 background teammates");
 		expect(second.render(100)).toEqual([]);
 	});
+
+	it("renders zero lines when the host context shape is unrecognizable (1.2 unknown-typed callback inputs)", () => {
+		let resolver: ((name: string, next: () => unknown) => unknown) | undefined;
+		registerTeammateToolRenderers({
+			registerToolRenderer: (value: typeof resolver) => {
+				resolver = value;
+			},
+		} as unknown as ExtensionAPI);
+		const adapters = resolver?.("Agent", () => undefined) as {
+			renderCall: (args: unknown, theme: typeof theme, ctx: unknown) => { render(width: number): string[] };
+		};
+		const args = { name: "fe-fleet", description: "Find frontend" };
+		// Pi 1.2 types these inputs as unknown; a malformed context (missing
+		// fields, non-record args) must degrade to zero lines, never throw.
+		expect(adapters.renderCall(args, theme, undefined).render(100)).toEqual([]);
+		expect(adapters.renderCall(args, theme, { toolCallId: "x" }).render(100)).toEqual([]);
+		expect(adapters.renderCall("not-a-record", theme, context("bad-args", {})).render(100)).toEqual([]);
+		// A well-formed context with plain-record args still renders the boxed row.
+		const boxed = adapters.renderCall(args, theme, context("public-3", args));
+		expect(plain(boxed.render(100))[0]).toContain("fe-fleet");
+	});
 });
 
 describe("pi-teams message renderers", () => {

@@ -1128,19 +1128,25 @@ describe("special message blocks", () => {
 		expect(component.render(80).join("\n")).not.toContain("╭");
 	});
 
-	it.each(["truecolor", "256color"])("resolves titanium's compactionBgColor extra in %s", (mode) => {
-		installSpecialBlockAdapters();
-		const rich = createFakeTheme();
-		Object.assign(rich, { sourcePath: resolve("themes/titanium.json"), getColorMode: () => mode });
-		setSpecialBlockTheme(rich);
-		const component = new CompactionSummaryMessageComponent({
-			role: "compactionSummary",
-			summary: "summary",
-			tokensBefore: 1234,
-			timestamp: 1,
-		});
-		expect(component.render(80).join("\n")).toContain(mode === "truecolor" ? "\x1b[48;2;15;18;22m" : "\x1b[48;5;");
-	});
+	it.each(["truecolor", "256color"])(
+		"fills titanium's compaction card via the userMessageBg fallback in %s",
+		(mode) => {
+			installSpecialBlockAdapters();
+			// Shipped themes carry no extras (Pi's theme schema rejects unknown top-level
+			// keys), so the compaction fill must come from userMessageBg and still match
+			// the value previously set through extras (#0f1216).
+			const rich = createFakeTheme({ colorMode: mode, backgrounds: { userMessageBg: "#0f1216" } });
+			Object.assign(rich, { sourcePath: resolve("themes/titanium.json") });
+			setSpecialBlockTheme(rich);
+			const component = new CompactionSummaryMessageComponent({
+				role: "compactionSummary",
+				summary: "summary",
+				tokensBefore: 1234,
+				timestamp: 1,
+			});
+			expect(component.render(80).join("\n")).toContain(mode === "truecolor" ? "\x1b[48;2;15;18;22m" : "\x1b[48;5;");
+		},
+	);
 
 	it("fits Unicode previews at narrow widths and has no empty body for an empty summary", () => {
 		installSpecialBlockAdapters();
@@ -1199,18 +1205,31 @@ describe("special message blocks", () => {
 		expect(native.join("\n")).not.toContain("╭");
 	});
 
-	it("keeps a custom renderer when provided", () => {
+	it("keeps a custom renderer when provided and forwards the native options bag", () => {
 		installSpecialBlockAdapters();
 		setSpecialBlockTheme(theme);
+		// Native 1.1.0+ passes { expanded, outputPad } to custom renderers; the
+		// boxed-shell delegate must mirror that bag (component pad 3 here, Pi's
+		// native default 1 when the component carries no pad field).
+		const seenOptions: unknown[] = [];
 		const component = new CustomMessageComponent(
 			{ role: "custom", customType: "mcp_tool", content: "ignored", display: true, timestamp: 1 },
-			(message: { content?: unknown }) =>
-				({ render: () => [`renderer:${String(message.content)}`], invalidate() {} }) as never,
+			(message: { content?: unknown }, options: unknown) => {
+				seenOptions.push(options);
+				return { render: () => [`renderer:${String(message.content)}`], invalidate() {} } as never;
+			},
+			undefined,
+			3,
 		);
 		const lines = component.render(80);
 		expect(lines.join("\n")).toContain("╭");
 		expect(lines.join("\n")).toContain("renderer:ignored");
 		assertFit(lines, 80);
+		expect(seenOptions[0]).toEqual({ expanded: false, outputPad: 3 });
+		// The pre-1.1 host layout (no outputPad field) still yields Pi's default.
+		delete (component as { outputPad?: unknown }).outputPad;
+		component.invalidate();
+		expect(seenOptions.at(-1)).toEqual({ expanded: false, outputPad: 1 });
 	});
 });
 

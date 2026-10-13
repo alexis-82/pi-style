@@ -42,6 +42,18 @@ describe("message decoration cache bounds", () => {
 		expect(state.lineCacheMisses).toBeLessThanOrEqual(lineCount + 2);
 	});
 
+	it("does not cache a render while the assistant component is streaming", () => {
+		const instance = { isStreaming: true };
+		const nativeLines = finalizedTranscript(12);
+		const render = () => nativeLines;
+
+		for (let iteration = 0; iteration < 3; iteration++) {
+			decorateMessageRender(render, instance, [120], SNAPSHOT);
+		}
+
+		expect(__getMessageDecorationTestState().cacheHits).toBe(0);
+	});
+
 	it("keeps separate width entries without reprocessing on repeated revisits", () => {
 		const instance = {};
 		const nativeLines = finalizedTranscript(240);

@@ -2,6 +2,7 @@ import { Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 
 export interface FakeThemeOptions {
 	name?: string;
+	colorMode?: "truecolor" | "256color";
 	colors?: Partial<Record<ThemeColor, string>>;
 	backgrounds?: Partial<
 		Record<
@@ -74,5 +75,5 @@ export function createFakeTheme(options: FakeThemeOptions = {}): Theme {
 		toolErrorBg: "",
 		...(options.backgrounds ?? {}),
 	};
-	return new Theme(foregrounds, backgrounds, "truecolor", { name: options.name ?? "fake" });
+	return new Theme(foregrounds, backgrounds, options.colorMode ?? "truecolor", { name: options.name ?? "fake" });
 }

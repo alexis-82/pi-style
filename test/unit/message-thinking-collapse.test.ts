@@ -205,7 +205,7 @@ describe("hidden-thinking label collapse", () => {
 		disposePiCompatibilityProbe(report);
 	});
 
-	it("falls back natively when hideThinkingLabel is disabled in config", () => {
+	it("keeps native thinking labels while the automatic presentation adapter is installed", () => {
 		initTheme("dark", false);
 		const report = probePiCompatibility("0.83.0", {
 			config: {
@@ -219,7 +219,9 @@ describe("hidden-thinking label collapse", () => {
 			report.recordSnapshots.find(
 				(record) => record.subtype === "native-assistant-message" && record.method === "updateContent",
 			)?.shape,
-		).toBe("unsupported");
+		).toBe("installed");
+		const comp = new AssistantMessageComponent(thinkingThenAnswer(), true);
+		expect(comp.render(120).join("\n")).toContain("Thinking...");
 		disposePiCompatibilityProbe(report);
 	});
 });

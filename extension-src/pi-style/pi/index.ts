@@ -56,6 +56,18 @@ function activateReadOnlyTools(pi: ExtensionAPI): void {
 	if (changed) pi.setActiveTools([...active]);
 }
 
+/**
+ * Structural view of `before_agent_start` across supported runtimes: pre-1.2
+ * hosts emit the flat user shape with no `messageType` (the prompt's `images`
+ * ride along); 1.2+ splits the event into `messageType: "user"` (same shape,
+ * plus the discriminator) and `messageType: "custom"` — a run started by
+ * `sendMessage(..., { triggerTurn: true })`, which carries no prompt images.
+ */
+interface BeforeAgentStartEventShape {
+	readonly messageType?: unknown;
+	readonly images?: readonly unknown[];
+}
+
 let compatibilityTestHooks: CompatibilityTestHooks = {};
 export function __setCompatibilityTestHooks(hooks: CompatibilityTestHooks): () => void {
 	const previous = compatibilityTestHooks;
@@ -101,7 +113,12 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 	// flush replaces the staged slot (last write wins).
 	let stagedImagePreview: ImagePreviewEntryData | undefined;
 	let previewFlushTimer: ReturnType<typeof setTimeout> | undefined;
-	pi.on("before_agent_start", (event) => {
+	pi.on("before_agent_start", (event: BeforeAgentStartEventShape) => {
+		// 1.2+ custom runs (`sendMessage` triggerTurn) carry no prompt images and
+		// may fire while a user prompt's preview is waiting to flush — leave the
+		// pending slot untouched so the custom run cannot erase it. User runs and
+		// the pre-1.2 flat shape (no `messageType`) stage as before.
+		if (event.messageType === "custom") return;
 		// Always replace the slot: a subsequent image-less prompt must not
 		// accidentally flush the previous prompt's preview.
 		stagedImagePreview = stageImagePreviewData(event.images ?? []);

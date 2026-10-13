@@ -719,14 +719,15 @@ export function decorateMessageRender(
 	// One accounting per pass (children render deterministically; pi-tui caches
 	// renders by width, so the accounting re-uses the full-render work).
 	const leadingSkip = leadingSkipLineCount(instance, reducedWidth);
-	const cached = getRenderCache(instance).get(cacheKey(width, prefix, leadingSkip));
+	const finished = (instance as { isStreaming?: unknown }).isStreaming !== true;
+	const cached = finished ? getRenderCache(instance).get(cacheKey(width, prefix, leadingSkip)) : undefined;
 	if (cached && (cached.nativeRef === native || sameLines(cached.nativeLines, native))) {
 		messageDecorationTestState.cacheHits++;
 		return [...cached.result];
 	}
 	messageDecorationTestState.cacheMisses++;
 	const decorated = prefixNative(native, width, prefix, snapshot.thoughtGlyph, leadingSkip) ?? native;
-	storeRenderCache(instance, width, prefix, native, decorated, leadingSkip);
+	if (finished) storeRenderCache(instance, width, prefix, native, decorated, leadingSkip);
 	return decorated;
 }
 

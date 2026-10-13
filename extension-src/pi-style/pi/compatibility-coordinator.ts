@@ -48,8 +48,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 		},
 		state(config) {
 			const version = detectPiVersion();
-			const messagesConfigured =
-				config.enabled && config.messages.enabled && (config.messages.assistantPrefix || config.messages.specialBlocks);
+			const messagesConfigured = config.enabled && config.messages.enabled;
 			const toolsConfigured = config.enabled && config.tools.enabled;
 			const surface = (
 				feature: "messages" | "tools",
@@ -95,7 +94,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 				supportedVersions: report?.supportedVersions ?? [],
 				assistantMessage: surface(
 					"messages",
-					config.enabled && config.messages.enabled && config.messages.assistantPrefix,
+					config.enabled && config.messages.enabled,
 					Boolean(authorization?.assistant),
 					"native-assistant-message",
 				),
@@ -150,8 +149,13 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 						config,
 					}),
 			);
+			const coalescingEnabled = Boolean(
+				authorization.assistant &&
+					isTierCAuthorized({ coreFlag: authorization.core, surfaceFlag: true, surface: "messages", config }),
+			);
 			const messagesEnabled =
-				(assistantEnabled || specialBlocksEnabled || compactionTranscriptEnabled) && config.messages.enabled;
+				(assistantEnabled || specialBlocksEnabled || compactionTranscriptEnabled || coalescingEnabled) &&
+				config.messages.enabled;
 			// The hidden-thinking collapse is an assistant-message surface patch: it needs
 			// the assistant flag and `messages.hideThinkingLabel`, independent of the
 			// assistant prefix feature.
@@ -172,6 +176,7 @@ export function createCompatibilityCoordinator(dispose = disposePiCompatibilityP
 			if (!messagesEnabled && !toolsEnabled) return undefined;
 			const detected = detectPiVersion();
 			report = probePiCompatibility(detected.version, {
+				assistantPresentation: coalescingEnabled,
 				config: {
 					...config,
 					messages: {

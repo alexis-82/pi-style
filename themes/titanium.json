@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "$schema": "https://pi.dev/schemas/theme.schema.json",
   "name": "titanium",
   "vars": {
     "brushedTitanium": "#151820",
@@ -70,9 +70,6 @@
     "thinkingHigh": "electricBlue",
     "thinkingXhigh": "titaniumGold",
     "bashMode": "readoutGreen"
-  },
-  "extras": {
-    "compactionBgColor": "darkTitanium"
   },
   "export": {
     "pageBg": "brushedTitanium",

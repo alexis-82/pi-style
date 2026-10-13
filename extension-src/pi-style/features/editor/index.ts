@@ -17,10 +17,10 @@ type Keybindings = Parameters<EditorFactory>[2];
 type EditorHost = Pick<ExtensionUIContext, "setEditorComponent"> & {
 	getEditorComponent?: () => EditorFactory | undefined;
 	notify?: (message: string, type?: "info" | "warning" | "error") => void;
-	/** Full Pi theme; semantic primary color and concrete color styling. */
-	readonly theme?: ExtensionUIContext["theme"] & {
-		style?: (text: string, options: { fg: string }) => string;
-	};
+	/** Full Pi theme; semantic primary color and concrete color styling
+	 *  (getColorMode/fg — Pi 1.2's optional Theme.style needs no augmentation
+	 *  here; nothing in pi-style calls it directly). */
+	readonly theme?: ExtensionUIContext["theme"];
 };
 
 export interface EditorInstallation {

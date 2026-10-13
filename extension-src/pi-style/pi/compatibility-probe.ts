@@ -18,6 +18,7 @@ import {
 	decorateMessageUpdate,
 	type MessageDecorationSnapshot,
 } from "../features/messages/index.js";
+import { AssistantPresentationBuffer } from "../features/messages/presentation-buffer.js";
 import {
 	decorateSkillInvocation,
 	renderSpecialMessageBlock,
@@ -42,7 +43,7 @@ import {
  * changes the identity degrades that single surface to its native fallback while
  * every other surface continues.
  */
-export const SUPPORTED_VERSION_RANGE = ">=0.83.0 <0.86.0 || >=0.99.0 <0.100.0 || >=1.0.0 <1.1.0";
+export const SUPPORTED_VERSION_RANGE = ">=0.83.0 <0.86.0 || >=0.99.0 <0.100.0 || >=1.0.0 <1.3.0";
 export const SUPPORTED_PI_VERSIONS: readonly string[] = Object.freeze([
 	"0.83.0",
 	"0.84.0",
@@ -55,6 +56,8 @@ export const SUPPORTED_PI_VERSIONS: readonly string[] = Object.freeze([
 	"0.99.1",
 	"0.99.2",
 	"1.0.0",
+	"1.1.0",
+	"1.2.0",
 ]);
 
 /** A recorded native identity for one certified surface. */
@@ -110,6 +113,22 @@ export interface KnownNativeIdentity {
  * artifact families (name, arity, source fingerprint and descriptor shape
  * verified). Only the observed-version metadata changes; identity-based
  * installation, conflict handling and native fallbacks remain unchanged.
+ *
+ * 1.1.0 drifts the three layout surfaces in BOTH families while preserving
+ * every adapter contract (verified against the installed artifacts): rebuild
+ * applies the component's outputPad to its native box, BashExecutionComponent
+ * promotes colorKey/outputPad to fields (fourth defaulted ctor parameter —
+ * Function.length stays 2) and moves the command header into updateDisplay(),
+ * and handleEvent gains a programStatus handoff plus outputPad threading that
+ * leave the gated compaction_end chat-rebuild flow untouched. 1.2.0 is
+ * byte-identical to 1.1.0 for those two component surfaces; its handleEvent
+ * drift is a status-indicator colorFn — a side effect the transcript sink
+ * deliberately lets run natively. The eight untouched surfaces carry their
+ * 0.99.1+ fingerprints through 1.2.0, so those identities only gain
+ * observed-version metadata (measured on the installed 1.1.0/1.2.0 modular
+ * and bundled artifacts, all name/arity/shape gates re-verified). 1.1.0/1.2.0
+ * also split `before_agent_start` into user/custom runs (no impact on any
+ * patched prototype identity).
  */
 export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNativeIdentity[]>> = Object.freeze({
 	"native-assistant-message:render": Object.freeze([
@@ -127,13 +146,15 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 				"0.99.1",
 				"0.99.2",
 				"1.0.0",
+				"1.1.0",
+				"1.2.0",
 			]),
 		}),
 		Object.freeze({
 			name: "render",
 			arity: 1,
 			fingerprint: "a9be09a3",
-			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1", "0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1", "0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 	]),
 	"native-assistant-message:updateContent": Object.freeze([
@@ -168,7 +189,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateContent",
 			arity: 1,
 			fingerprint: "80e338d2",
-			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
@@ -195,7 +216,7 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateContent",
 			arity: 1,
 			fingerprint: "48eaa40b",
-			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 	]),
 	"native-compaction-message:updateDisplay": Object.freeze([
@@ -219,14 +240,14 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "032b78e2",
-			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 		// 0.99.1 bundled: same drift, minified.
 		Object.freeze({
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "d4944b9b",
-			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 	]),
 	"native-branch-message:updateDisplay": Object.freeze([
@@ -247,20 +268,30 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "ca1c3479",
-			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 		Object.freeze({
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "e2a2f648",
-			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 	]),
 	"native-skill-message:addMessageToChat": Object.freeze([
 		Object.freeze({ name: "addMessageToChat", arity: 2, fingerprint: "2ea6db1c", versions: Object.freeze(["0.85.0"]) }),
 		Object.freeze({ name: "addMessageToChat", arity: 2, fingerprint: "20dfc3c5", versions: Object.freeze(["0.85.0"]) }),
-		Object.freeze({ name: "addMessageToChat", arity: 2, fingerprint: "0dcccc85", versions: Object.freeze(["1.1.0"]) }),
-		Object.freeze({ name: "addMessageToChat", arity: 2, fingerprint: "5653f0d4", versions: Object.freeze(["1.1.0"]) }),
+		Object.freeze({
+			name: "addMessageToChat",
+			arity: 2,
+			fingerprint: "0dcccc85",
+			versions: Object.freeze(["1.1.0", "1.2.0"]),
+		}),
+		Object.freeze({
+			name: "addMessageToChat",
+			arity: 2,
+			fingerprint: "5653f0d4",
+			versions: Object.freeze(["1.1.0", "1.2.0"]),
+		}),
 	]),
 	"native-skill-message:updateDisplay": Object.freeze([
 		Object.freeze({
@@ -280,13 +311,13 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "4fc828e7",
-			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 		Object.freeze({
 			name: "updateDisplay",
 			arity: 0,
 			fingerprint: "ff63e9ec",
-			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 	]),
 	"native-custom-message:rebuild": Object.freeze([
@@ -320,6 +351,23 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			fingerprint: "ee761c8c",
 			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
 		}),
+		// 1.1.0: native default rendering applies the component's outputPad to the
+		// box (`this.box.setPaddingX(this.outputPad)` in rebuild). Custom renderers
+		// also receive the instance's outputPad in their options bag, which the
+		// pi-style delegate forwards. Source is byte-identical through 1.2.0; the
+		// boxed-shell delegate reads the same instance fields as before.
+		Object.freeze({
+			name: "rebuild",
+			arity: 0,
+			fingerprint: "e8e18d5a",
+			versions: Object.freeze(["1.1.0", "1.2.0"]),
+		}),
+		Object.freeze({
+			name: "rebuild",
+			arity: 0,
+			fingerprint: "1c75360f",
+			versions: Object.freeze(["1.1.0", "1.2.0"]),
+		}),
 	]),
 	"tool-call-renderer:getCallRenderer": Object.freeze([
 		Object.freeze({
@@ -340,14 +388,14 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "e0a9ed86",
-			versions: Object.freeze(["0.85.0", "0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.85.0", "0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
 			name: "getCallRenderer",
 			arity: 0,
 			fingerprint: "73116365",
-			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 	]),
 	"tool-result-renderer:getResultRenderer": Object.freeze([
@@ -369,14 +417,14 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "1567dcf4",
-			versions: Object.freeze(["0.85.0", "0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.85.0", "0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 		// 0.85.0 bundled: same drift, minified.
 		Object.freeze({
 			name: "getResultRenderer",
 			arity: 0,
 			fingerprint: "d613a2a3",
-			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1", "0.99.2", "1.0.0"]),
+			versions: Object.freeze(["0.85.0", "0.85.1", "0.99.1", "0.99.2", "1.0.0", "1.1.0", "1.2.0"]),
 		}),
 	]),
 	"native-bash-execution:render": Object.freeze([
@@ -405,6 +453,24 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			arity: 2,
 			fingerprint: "98d22d96",
 			versions: Object.freeze(["0.84.3", "0.84.4", "0.85.0", "0.85.1", "0.99.1", "0.99.2", "1.0.0"]),
+		}),
+		// 1.1.0: `colorKey`/`outputPad` become instance fields, the constructor
+		// gains a fourth defaulted `outputPad` parameter (Function.length stays 2)
+		// and the command header moves into `updateDisplay()`. The additive-render
+		// invariant is unchanged — the prototype still owns no `render` — and the
+		// boxed delegate still keys on `contentContainer.render`. Byte-identical
+		// through 1.2.0.
+		Object.freeze({
+			name: "BashExecutionComponent",
+			arity: 2,
+			fingerprint: "a78e620a",
+			versions: Object.freeze(["1.1.0", "1.2.0"]),
+		}),
+		Object.freeze({
+			name: "BashExecutionComponent",
+			arity: 2,
+			fingerprint: "aefc0311",
+			versions: Object.freeze(["1.1.0", "1.2.0"]),
 		}),
 	]),
 	// InteractiveMode.handleEvent — the highest-drift surface in the registry:
@@ -480,6 +546,40 @@ export const KNOWN_NATIVE_IDENTITIES: Readonly<Record<string, readonly KnownNati
 			arity: 1,
 			fingerprint: "c5aa9e43",
 			versions: Object.freeze(["0.99.1", "0.99.2", "1.0.0"]),
+		}),
+		// 1.1.0: a `programStatus.handleEvent` handoff at the handler top,
+		// `outputPad` threading on tool components, install-change warnings and
+		// `durationMs` on tool results — none touch the gated `compaction_end`
+		// flow (clear → renderSessionEntries → single-arg addMessageToChat →
+		// usage notice), and the status handoff still runs exactly once through
+		// the native call while the transcript sink is installed.
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "ac8b0d2a",
+			versions: Object.freeze(["1.1.0"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "25e6880a",
+			versions: Object.freeze(["1.1.0"]),
+		}),
+		// 1.2.0: compaction/retry status indicators additionally take an
+		// embedded-status colorFn (editor-border-aware). That is a status-indicator
+		// side effect the sink deliberately lets run natively; the gated
+		// `compaction_end` chat-rebuild path is unchanged.
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "fb7da1be",
+			versions: Object.freeze(["1.2.0"]),
+		}),
+		Object.freeze({
+			name: "handleEvent",
+			arity: 1,
+			fingerprint: "1b1a44cc",
+			versions: Object.freeze(["1.2.0"]),
 		}),
 	]),
 });
@@ -721,6 +821,8 @@ function shape(spec: TargetSpec): boolean {
 }
 
 export interface CompatibilityProbeOptions {
+	/** Adapter authorization/test seam, not a user configuration option. */
+	assistantPresentation?: boolean;
 	markers?: Set<string>;
 	config?: Readonly<{
 		messages: {
@@ -772,13 +874,18 @@ function probeDiagnostic(spec: TargetSpec, identity: unknown): string {
 	return "exact native identity verified; certified guarded decoration enabled";
 }
 
-function surfaceDisabled(spec: TargetSpec, config: CompatibilityProbeOptions["config"]): boolean {
+function surfaceDisabled(
+	spec: TargetSpec,
+	config: CompatibilityProbeOptions["config"],
+	assistantPresentation: boolean,
+): boolean {
 	if (!config) return false;
 	if (spec.feature === "tools") return !config.tools.enabled;
 	if (!config.messages.enabled) return true;
-	if (spec.subtype === "native-assistant-message" && spec.method === "render") return !config.messages.assistantPrefix;
+	if (spec.subtype === "native-assistant-message" && spec.method === "render")
+		return !config.messages.assistantPrefix && !assistantPresentation;
 	if (spec.subtype === "native-assistant-message" && spec.method === "updateContent")
-		return !config.messages.hideThinkingLabel;
+		return !config.messages.hideThinkingLabel && !assistantPresentation;
 	if (spec.subtype === "native-compaction-transcript") return !config.messages.preserveCompactionTranscript;
 	if (isSpecialBlock(spec) || spec.subtype === "native-skill-message") return !config.messages.specialBlocks;
 	return true;
@@ -791,12 +898,14 @@ function probeSpec(options: {
 	markers: Set<string>;
 	config?: CompatibilityProbeOptions["config"];
 	messageSnapshot: MessageDecorationSnapshot | undefined;
+	presentation: AssistantPresentationBuffer;
+	assistantPresentation: boolean;
 	toolOwner: ReturnType<typeof createToolDecorationOwner> | undefined;
 }) {
-	const { spec, piVersion, generation, markers, config, toolOwner, messageSnapshot } = options;
+	const { spec, piVersion, generation, markers, config, toolOwner, messageSnapshot, presentation } = options;
 	const identity = trustedNativeIdentity(spec);
 	const diagnostic = probeDiagnostic(spec, identity);
-	const disabled = surfaceDisabled(spec, config);
+	const disabled = surfaceDisabled(spec, config, options.assistantPresentation);
 	if (disabled) {
 		const reason = "native fallback: surface disabled by normalized configuration";
 		return { record: createFallbackRecord(spec, piVersion, generation, reason), reason, fallback: true };
@@ -831,8 +940,20 @@ function probeSpec(options: {
 					) ?? Reflect.apply(original as (...values: unknown[]) => unknown, target, args)
 				);
 			if (spec.subtype === "native-assistant-message") {
-				if (spec.method === "updateContent") return decorateMessageUpdate(original, target, args, messageSnapshot);
-				return decorateMessageRender(original, target, args, messageSnapshot);
+				if (spec.method === "updateContent")
+					return presentation.update(target, args, () =>
+						decorateMessageUpdate(original, target, args, messageSnapshot),
+					);
+				presentation.flush(target);
+				return decorateMessageRender(
+					(...renderArgs: unknown[]) =>
+						presentation.render(target, renderArgs[0], () =>
+							Reflect.apply(original as (...values: unknown[]) => unknown, target, renderArgs),
+						),
+					target,
+					args,
+					messageSnapshot,
+				);
 			}
 			if (spec.subtype === "native-compaction-transcript") return decorateCompactionTranscript(original, target, args);
 			if (spec.subtype === "native-skill-message" && spec.method === "addMessageToChat")
@@ -840,6 +961,13 @@ function probeSpec(options: {
 			return renderSpecialMessageBlock(spec.subtype as SpecialBlockSubtype, original, target, args);
 		},
 	});
+	if (spec.subtype === "native-assistant-message" && result.status !== "skipped") {
+		const dispose = result.record.disposer;
+		result.record.disposer = () => {
+			presentation.dispose();
+			dispose();
+		};
+	}
 	if (spec.subtype === "native-compaction-message" && result.status !== "skipped") {
 		const dispose = result.record.disposer;
 		result.record.disposer = () => {
@@ -1019,7 +1147,11 @@ export const CERTIFICATION_TABLE: Readonly<
 
 const reportStates = new WeakMap<
 	object,
-	{ records: CompatibilityRecord[]; toolOwner: ReturnType<typeof createToolDecorationOwner> | undefined }
+	{
+		records: CompatibilityRecord[];
+		toolOwner: ReturnType<typeof createToolDecorationOwner> | undefined;
+		presentation: AssistantPresentationBuffer;
+	}
 >();
 
 /** Release pi-style wrappers explicitly retained by a previous session runtime.
@@ -1074,6 +1206,8 @@ export function probePiCompatibility(
 		),
 	);
 	const evidenceByKey = new Map(evidence.map((item) => [`${item.subtype}:${String(item.method)}`, item]));
+	const assistantPresentation = options instanceof Set || options.assistantPresentation !== false;
+	const presentation = new AssistantPresentationBuffer();
 	const records: CompatibilityRecord[] = [];
 	const unsupported: Array<{ subtype: string; method: PropertyKey; reason: string }> = [];
 	const certification: NonNullable<CompatibilityProbeReport["certification"]>[number][] = [];
@@ -1085,6 +1219,8 @@ export function probePiCompatibility(
 		const matchedIdentity = matchedNativeIdentity(spec);
 		const result = probeSpec({
 			messageSnapshot: options instanceof Set ? undefined : options.messageSnapshot,
+			presentation,
+			assistantPresentation,
 			spec,
 			piVersion,
 			generation,
@@ -1103,6 +1239,17 @@ export function probePiCompatibility(
 		});
 		if (result.fallback) unsupported.push({ subtype: spec.subtype, method: spec.method, reason: result.reason });
 	}
+	presentation.enabled =
+		assistantPresentation &&
+		["render", "updateContent"].every((method) =>
+			records.some(
+				(record) =>
+					record.subtype === "native-assistant-message" &&
+					record.method === method &&
+					record.shape === "installed" &&
+					!record.disposed,
+			),
+		);
 	const report: CompatibilityProbeReport = {
 		attemptedVersion: piVersion ?? "unknown",
 		supportedVersions: SUPPORTED_PI_VERSIONS,
@@ -1132,11 +1279,12 @@ export function probePiCompatibility(
 		getFinalDiagnostics: () => toolOwner?.getFinalArchive(),
 		getActiveToolRecordCount: () => toolOwner?.getActiveRecordCount() ?? 0,
 		disposeOwner: () => {
+			presentation.dispose();
 			toolOwner?.dispose();
 		},
 	};
 	Object.freeze(report);
-	reportStates.set(report, { records, toolOwner });
+	reportStates.set(report, { records, toolOwner, presentation });
 	return report;
 }
 
@@ -1150,6 +1298,9 @@ export type CompatibilityCleanupResult = Readonly<{
 export function retainPiCompatibilityProbe(report: CompatibilityProbeReport): void {
 	const state = reportStates.get(report);
 	if (!state) return;
+	// Shutdown has no guaranteed next frame. Flush and retire presentation work
+	// while retaining decorators for Pi's restored-chat render before rebind.
+	state.presentation.dispose();
 	for (const record of state.records) {
 		if (!record.disposed && record.installedIdentity !== undefined) record.retainedForSessionRebind = true;
 	}
