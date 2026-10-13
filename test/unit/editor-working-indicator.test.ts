@@ -77,6 +77,34 @@ describe("native working indicator in the styled editor", () => {
 		expect(loader.status.dispose).not.toHaveBeenCalled();
 	});
 
+	it.each(frames)("matches the spinner foreground to the border for $style/$frame", (frame) => {
+		const { editor } = createEditor(frame);
+		const loader = indicator();
+		editor.setWorkingStatusIndicator(loader.native);
+		const line = editor.render(80)[0] ?? "";
+		expect(line).toContain("\x1b[34m");
+		expect(line).not.toContain("\x1b[35m");
+		expect(stripAnsi(line)).toContain("⠹ Working");
+	});
+
+	it("tracks session border color changes for the status and narrow spinner", () => {
+		const { editor } = createEditor({ style: "dock", frame: "rounded" });
+		const loader = indicator();
+		editor.setWorkingStatusIndicator(loader.native);
+		editor.update({ editorBorderColor: "#123456" });
+		const first = editor.render(80)[0] ?? "";
+		expect(first).toContain("\x1b[38;2;18;52;86m── ⠹ Working");
+		expect(first).not.toContain("\x1b[35m");
+		editor.update({ editorBorderColor: "#abcdef" });
+		expect(editor.render(80)[0]).toContain("\x1b[38;2;171;205;239m── ⠹ Working");
+		// Very narrow layouts fall back to the native border color.
+		const narrow = editor.render(4)[0] ?? "";
+		expect(narrow).toContain("\x1b[34m");
+		expect(narrow).not.toContain("\x1b[35m");
+		expect(stripAnsi(narrow)).toContain("⠹");
+		expect(visibleWidth(narrow)).toBeLessThanOrEqual(4);
+	});
+
 	it("uses the full available top-border width, not the padded text width", () => {
 		const { editor } = createEditor({ style: "dock", frame: "rounded" });
 		const loader = indicator("Thinking about a detailed answer");
@@ -89,7 +117,8 @@ describe("native working indicator in the styled editor", () => {
 			expect(spy).toHaveBeenCalledTimes(1);
 			expect(spy.mock.calls[0]?.[0]).toBeLessThan(78);
 			expect(loader.status.renderInBorder).toHaveBeenCalledExactlyOnceWith(73);
-			expect(lines[0]).toContain("\x1b[35m⠹ Thinking about a detailed answer\x1b[0m");
+			expect(lines[0]).toContain("\x1b[34m── ⠹ Thinking about a detailed answer");
+			expect(lines[0]).not.toContain("\x1b[35m");
 			expect(stripAnsi(lines[0] ?? "").startsWith("╭── ")).toBe(true);
 			expect(stripAnsi(lines[0] ?? "").endsWith("╮")).toBe(true);
 			expect(visibleWidth(lines[0] ?? "")).toBe(80);

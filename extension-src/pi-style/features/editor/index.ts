@@ -409,15 +409,15 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 	 */
 	protected override renderTopBorder(width: number, hiddenLineCount: number): string {
 		const frame = this.nativeFrame;
-		if (!frame) return super.renderTopBorder(width, hiddenLineCount);
+		if (!frame) return this.borderColor(stripAnsi(super.renderTopBorder(width, hiddenLineCount)));
 		const borderWidth = this.topBorderWidth(frame.width, frame.kind);
-		// Let Pi compose its native spinner/scroll labels, but color only the
-		// surrounding rule with our fixed session color instead of thinking effort.
+		// Pi owns spinner/scroll composition; the entire top border shares our
+		// session color, including indicator text that Pi colors independently.
 		const previousBorderColor = this.borderColor;
 		let nativeBorder: string;
 		try {
 			this.borderColor = this.borderColorFor();
-			nativeBorder = super.renderTopBorder(borderWidth, hiddenLineCount);
+			nativeBorder = this.borderColor(stripAnsi(super.renderTopBorder(borderWidth, hiddenLineCount)));
 		} finally {
 			this.borderColor = previousBorderColor;
 		}
@@ -433,8 +433,8 @@ export class StyledEditor extends CustomEditor implements EditorComponent {
 		const border = this.borderFor();
 		const borderWidth = this.topBorderWidth(width, kind);
 		const glyph = kind === "boxed" ? (this.config.editor.frame === "halfblock" ? "▀" : "━") : "─";
-		// Only restyle an empty native rule. Status ANSI and scroll labels pass
-		// through verbatim; never parse a message or read Pi's private indicator.
+		// Only reshape an empty native rule. Preserve status/scroll text and
+		// geometry; never parse a message or read Pi's private indicator.
 		const label = this.snapshot.sessionName
 			? [...stripAnsi(this.snapshot.sessionName)]
 					.map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char))
