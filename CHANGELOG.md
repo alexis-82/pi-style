@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.8] - 2026-10-13
+
+### Bug Fixes
+
+- Match working indicator color to editor border
+- Restore Pi server dependency for clean test installs
+
+### Features
+
+- Optimize assistant rendering and update Pi compatibility
+- Render unified team tools and teammate results
+
+### Testing
+
+- Account for read chunk line counting in performance budget
+
 ## [0.5.7] - 2026-10-12
 
 ### Features
