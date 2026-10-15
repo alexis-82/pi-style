@@ -184,7 +184,7 @@ describe("dispatcher defers the ➔ leader to merged labels", () => {
 		]);
 		const kept = dispatchCall("read", { path: "a.ts" }, theme, toolContext("t1"));
 		expect(kept.render(80).length).toBeGreaterThan(0);
-		expect(stripAnsi(kept.render(80).join("\n"))).toContain("◈ Thought 0 times · Called 1 tool");
+		expect(stripAnsi(kept.render(80).join("\n"))).toContain("◈ Called 1 tool");
 		expect(stripAnsi(kept.render(80).join("\n"))).not.toContain("➔");
 
 		publishEndedGroupMessage(assistant);

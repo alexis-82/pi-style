@@ -42,15 +42,18 @@ export function resetSummaryBridge(): void {
 }
 
 /** One canonical, duration-free run label, shared by thought and tools-only runs.
- *  The `Called` part is omitted entirely when the stats carry no tool calls
- *  (thought-only runs and tool-less prefixes render `◈ Thought N times`). */
+ *  The thought clause appears only when N > 0 (ADR 0012 §7): tools-only runs
+ *  render `◈ Called N tools · …` with no `Thought 0 times` noise. The `Called`
+ *  part is omitted entirely when the stats carry no tool calls (thought-only
+ *  runs and tool-less prefixes render `◈ Thought N times`). */
 export function mergedSummaryText(glyph: string, thoughts: number, stats: MergedSegmentStats): string {
-	const parts = [`${glyph} Thought ${thoughts} ${thoughts === 1 ? "time" : "times"}`];
+	const parts: string[] = [];
+	if (thoughts > 0) parts.push(`Thought ${thoughts} ${thoughts === 1 ? "time" : "times"}`);
 	if (stats.calls > 0) parts.push(`Called ${stats.calls} ${stats.calls === 1 ? "tool" : "tools"}`);
 	if (stats.diff && (stats.diff.additions > 0 || stats.diff.removals > 0))
 		parts.push(`Edit +${stats.diff.additions} -${stats.diff.removals}`);
 	if (stats.failed > 0) parts.push(`${stats.failed} ${stats.failed === 1 ? "failure" : "failures"}`);
-	return parts.join(" · ");
+	return parts.length > 0 ? `${glyph} ${parts.join(" · ")}` : glyph;
 }
 
 /** Publish one assistant message's tool stats (turn registry, run finalize). */

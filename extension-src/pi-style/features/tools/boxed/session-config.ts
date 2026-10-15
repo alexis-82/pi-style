@@ -3,6 +3,8 @@
 // Set once per session by the compatibility coordinator; read inside renderers.
 // Kept out of the render path (no filesystem/config reads during render).
 
+import { GLYPHS } from "../../../domain/theme.js";
+
 export interface ToolsRenderConfig {
 	maxCollapsedLines: number;
 	maxExpandedLines: number;
@@ -47,6 +49,31 @@ export function setToolsRenderConfig(config: Partial<ToolsRenderConfig>): void {
 
 export function getToolsRenderConfig(): ToolsRenderConfig {
 	return sessionToolsConfig;
+}
+
+/** Team event states (ADR 0012 §1): fill equals progress — the glyph flips
+ *  exactly once, at settlement. */
+export type TeamEventState = "running" | "settled" | "failed" | "stopped";
+
+/** Team event glyph for the session's preset (ADR 0012 §1). The preset comes
+ *  from the existing `nerdFonts` flag; ASCII is detected from the coordinator's
+ *  `mergedSummaryGlyph === ">"` ascii marker so `pi/session-coordinator.ts`
+ *  stays untouched. If that marker is ever decoupled from the ascii preset,
+ *  ASCII silently degrades to the unicode set (fail-closed, no invented
+ *  glyphs). */
+export function teamEventGlyph(state: TeamEventState): string {
+	const config = getToolsRenderConfig();
+	const preset = config.nerdFonts ? GLYPHS.nerd : config.mergedSummaryGlyph === ">" ? GLYPHS.ascii : GLYPHS.unicode;
+	switch (state) {
+		case "running":
+			return preset.eventRunning;
+		case "settled":
+			return preset.eventSettled;
+		case "failed":
+			return preset.eventFailed;
+		case "stopped":
+			return preset.eventStopped;
+	}
 }
 
 export function getToolsRenderCacheSignature(): string {

@@ -6,7 +6,9 @@ import { type Component, getCapabilities, hyperlink, Text } from "@earendil-work
 import { fgHex, isHexColor, stripAnsi, visibleWidth } from "../../shared/ansi.js";
 import type { BoxTheme } from "../../shared/box.js";
 import { safeTruncateToWidth } from "../../shared/render-budget.js";
-import { getToolsRenderConfig } from "../tools/boxed/session-config.js";
+import { teamEventGlyph } from "../tools/boxed/session-config.js";
+import { formatDuration, formatTokens, normalizePreview } from "../tools/boxed/shared.js";
+import { settleTeammateRun } from "../tools/boxed/team-run-labels.js";
 
 export const TEAMMATE_MESSAGE_TYPES = new Set(["teammate-notification", "teammate-message"]);
 
@@ -39,6 +41,24 @@ type Report = {
 	preview: string;
 	resultFile?: string;
 	color?: unknown;
+	/** Producer-published run identity + timing (ADR 0012 §4/§5); absent
+	 *  fields are omitted silently, never fabricated. */
+	agentId?: string;
+	durationMs?: number;
+	totalTokens?: number;
+};
+const optionalNumber = (value: unknown): number | undefined =>
+	typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+/** Producer-published run identity + timing; absent fields are omitted. */
+const runMeta = (source: Record<string, unknown>) => {
+	const agentId = typeof source.agentId === "string" && source.agentId ? source.agentId : undefined;
+	const durationMs = optionalNumber(source.durationMs);
+	const totalTokens = optionalNumber(source.totalTokens);
+	return {
+		...(agentId !== undefined ? { agentId } : {}),
+		...(durationMs !== undefined ? { durationMs } : {}),
+		...(totalTokens !== undefined ? { totalTokens } : {}),
+	};
 };
 function notificationReports(content: string, details: Record<string, unknown>): Report[] {
 	const ownName = clean(details.teammateName ?? details.agentId, 64) || "teammate";
@@ -62,6 +82,7 @@ function notificationReports(content: string, details: Record<string, unknown>):
 				preview: body || "(no output)",
 				...(typeof details.resultFile === "string" ? { resultFile: details.resultFile } : {}),
 				color: details.color,
+				...runMeta(details),
 			},
 		];
 	}
@@ -73,6 +94,7 @@ function notificationReports(content: string, details: Record<string, unknown>):
 			preview: "",
 			...(typeof details.resultFile === "string" ? { resultFile: details.resultFile } : {}),
 			color: details.color,
+			...runMeta(details),
 		},
 	];
 	for (const peer of peers) {
@@ -85,6 +107,7 @@ function notificationReports(content: string, details: Record<string, unknown>):
 			preview: "(no output)",
 			...(typeof peer.resultFile === "string" ? { resultFile: peer.resultFile } : {}),
 			color: peer.color,
+			...runMeta(peer),
 		});
 	}
 	// The producer inserts unescaped previews, so section-like preview lines can
@@ -125,15 +148,47 @@ function notificationReports(content: string, details: Record<string, unknown>):
 	}
 	return entries;
 }
-function statusLabel(outcome: string): string {
-	return outcome === "completed" ? "finished" : outcome;
+/** Outcome glyph (ADR 0012 §1/§4): completed → `●` (success tint), failed →
+ *  `✗` (error), stopped → `○` (dim). */
+function outcomeGlyph(outcome: string, theme: BoxTheme): string {
+	if (outcome === "failed") return theme.fg("error", teamEventGlyph("failed"));
+	if (outcome === "stopped") return theme.fg("dim", teamEventGlyph("stopped"));
+	return theme.fg("success", teamEventGlyph("settled"));
 }
-function reportHead(report: Report, theme: BoxTheme, width = Number.POSITIVE_INFINITY): string {
-	const color = report.outcome === "completed" ? "success" : report.outcome === "failed" ? "error" : "dim";
+/** `<glyph> @name · 2m 03s · ↓146.5k tokens` — duration/tokens render only
+ *  from producer details; absent fields are omitted silently (ADR 0012 §4). */
+function reportHead(report: Report, theme: BoxTheme): string {
 	const identity = styledTeammate(theme, `@${report.name.replace(/^@/, "")}`, report.color);
-	return width < 24
-		? `${theme.fg(color, "●")} ${statusLabel(report.outcome)} ${identity}`
-		: `${theme.fg(color, "●")} ${identity} ${statusLabel(report.outcome)}`;
+	const tokens = formatTokens(report.totalTokens);
+	const tail = [formatDuration(report.durationMs), tokens !== undefined ? `${tokens} tokens` : undefined]
+		.filter((part): part is string => part !== undefined)
+		.join(" · ");
+	return `${outcomeGlyph(report.outcome, theme)} ${identity}${tail ? ` · ${tail}` : ""}`;
+}
+/** Collapsed link rows hang from a `└` (ADR 0012 §4); the hyperlink capability
+ *  logic inside resultLinkRows is reused untouched. */
+function treeLinkRows(rows: string[]): string[] {
+	return rows.map((row, index) => (index === 0 && row.startsWith("  ") ? `  └ ${row.slice(2)}` : row));
+}
+/** Grouped head (ADR 0012 §4): `<glyph> N teammates finished · 2 ✓ · 1 ✗` —
+ *  count segments render only when nonzero; zero counts are omitted. */
+function groupHead(reports: readonly Report[], theme: BoxTheme): string {
+	const count = (outcome: string): number => reports.filter((report) => report.outcome === outcome).length;
+	const completed = count("completed");
+	const failed = count("failed");
+	const stopped = count("stopped");
+	const glyph =
+		failed > 0
+			? theme.fg("error", teamEventGlyph("failed"))
+			: completed > 0
+				? theme.fg("success", teamEventGlyph("settled"))
+				: theme.fg("dim", teamEventGlyph("stopped"));
+	const segments = [
+		completed > 0 ? `${completed} ✓` : "",
+		failed > 0 ? `${failed} ✗` : "",
+		stopped > 0 ? `${stopped} ○` : "",
+	].filter(Boolean);
+	return `${glyph} ${reports.length} teammates finished${segments.length > 0 ? ` · ${segments.join(" · ")}` : ""}`;
 }
 function resultLinkRows(path: string, width: number, expanded: boolean): string[] {
 	const rawPath = stripAnsi(path)
@@ -172,6 +227,15 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 		const content = typeof message.content === "string" ? message.content : "";
 		if (!["completed", "failed", "stopped"].includes(String(data.outcome))) return new Text(content, 0, 0);
 		const reports = notificationReports(content, data);
+		// ADR 0012 §5: the notification renderer settles the remembered Agent run
+		// in the same process, flipping the live spawn row to its terminal glyph.
+		for (const report of reports)
+			if (report.agentId)
+				settleTeammateRun(report.agentId, {
+					outcome: report.outcome === "failed" || report.outcome === "stopped" ? report.outcome : "completed",
+					...(report.durationMs !== undefined ? { durationMs: report.durationMs } : {}),
+					...(report.totalTokens !== undefined ? { totalTokens: report.totalTokens } : {}),
+				});
 		return {
 			invalidate() {},
 			render(width) {
@@ -180,16 +244,18 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 				if (reports.length === 1) {
 					const report = reports[0];
 					if (!report) return [];
-					output.push(reportHead(report, theme, width));
+					output.push(reportHead(report, theme));
 					if (report.preview)
-						output.push(theme.fg("dim", `  └─ ${clean(report.preview, options.expanded ? 2000 : 180)}`));
+						output.push(theme.fg("dim", `  └ ${normalizePreview(report.preview) || clean(report.preview, 180)}`));
 					if (report.resultFile)
 						output.push(
-							...resultLinkRows(report.resultFile, width, options.expanded).map((line) => theme.fg("dim", line)),
+							...treeLinkRows(resultLinkRows(report.resultFile, width, options.expanded)).map((line) =>
+								theme.fg("dim", line),
+							),
 						);
 					if (options.expanded) {
 						output.length = 0;
-						output.push(reportHead(report, theme, width));
+						output.push(reportHead(report, theme));
 						const linkRows = report.resultFile ? resultLinkRows(report.resultFile, width, true) : [];
 						const previewLines = report.preview ? lines(report.preview) : [];
 						const fixedRows = 1 + linkRows.length + 1;
@@ -201,7 +267,7 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 						output.push(`  outcome: ${report.outcome}`);
 					}
 				} else if (options.expanded) {
-					output.push(`${reports.length} teammate reports`);
+					output.push(groupHead(reports, theme));
 					const reportLines = reports.map((report) => ({
 						report,
 						previewLines: lines(report.preview),
@@ -210,7 +276,7 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 					// Critical rows do not compete with artifact paths or successful
 					// previews: retain every member header and one explanatory line per
 					// failed member before allocating any ordinary rows.
-					for (const item of reportLines) output.push(reportHead(item.report, theme, width));
+					for (const item of reportLines) output.push(reportHead(item.report, theme));
 					for (const item of reportLines) {
 						if (item.report.outcome !== "failed") continue;
 						const name = `@${item.report.name.replace(/^@/, "")}`;
@@ -255,22 +321,34 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 								: `  … omitted ${omittedArtifactRows} artifact path rows and ${omittedPreviewRows} noncritical preview lines to keep failure receipts visible`,
 						);
 				} else {
-					const failed = reports.filter((report) => report.outcome === "failed");
-					output.push(
-						`${reports.length} teammate reports · ${failed.length} failed${failed.length ? `: ${failed.map((report) => `@${report.name.replace(/^@/, "")}`).join(", ")}` : ""}`,
-					);
-					const visible =
-						reports.length <= 2
-							? reports
-							: [...failed.slice(0, 1), reports.find((r) => r.outcome !== "failed")]
-									.filter((r): r is Report => !!r)
-									.slice(0, 2);
-					for (const report of visible)
+					output.push(groupHead(reports, theme));
+					// Every failure keeps its own `└` reason row (loud); successes may
+					// compress to one name list (ADR 0012 §4).
+					for (const report of reports) {
+						if (report.outcome !== "failed") continue;
 						output.push(
-							`${reportHead(report, theme, width)}${report.preview ? ` · ${clean(report.preview, 80)}` : ""}`,
+							theme.fg(
+								"error",
+								`  └ ${teamEventGlyph("failed")} @${report.name.replace(/^@/, "")} · ${clean(report.preview, 120)}`,
+							),
 						);
+					}
+					const successes = reports.filter((report) => report.outcome !== "failed");
+					if (successes.length > 0) {
+						const names = successes.map((report) => `@${report.name.replace(/^@/, "")}`);
+						const visibleNames = names.slice(0, 3);
+						const more = names.length - visibleNames.length;
+						output.push(
+							theme.fg(
+								"dim",
+								`  ├─ ${teamEventGlyph("settled")} ${visibleNames.join(", ")}${more > 0 ? ` … +${more} more` : ""}`,
+							),
+						);
+					}
 					if (reports[0]?.resultFile)
-						output.push(...resultLinkRows(reports[0].resultFile, width, false).map((line) => theme.fg("dim", line)));
+						output.push(
+							...treeLinkRows(resultLinkRows(reports[0].resultFile, width, false)).map((line) => theme.fg("dim", line)),
+						);
 				}
 				if (options.expanded && output.length > 200) {
 					const omitted = output.length - 199;
@@ -285,22 +363,23 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 		const data = record(message.details);
 		const from = clean(data.from, 64) || "teammate";
 		const body = typeof message.content === "string" ? message.content.replace(/^Message from @[^\n]+:\s*/, "") : "";
+		const hasBody = body.trim() !== "";
 		const contentLines = lines(body);
 		return {
 			invalidate() {},
 			render(width) {
 				if (width < 8) return [];
-				const label = getToolsRenderConfig().nerdFonts ? "\uf086" : "✉";
-				const sender = `${styledTeammate(theme, `@${from}`, data.color)} → lead`;
-				const visible = options.expanded ? contentLines : [clean(body, 220)];
-				return visible
-					.slice(0, options.expanded ? contentLines.length : 1)
-					.map((line, index) =>
-						safeTruncateToWidth(
-							`${index === 0 ? `${theme.fg("muted", label)} ${sender} · ` : "  "}${theme.fg("dim", line)}`,
-							width,
-						),
-					);
+				// Minimal disclosure (ADR 0012 §9): the collapsed line answers only
+				// "who → whom" — no preview, no envelope glyph. `@name` keeps its
+				// color from `details.color`.
+				const headLine = `${theme.fg("muted", teamEventGlyph("settled"))} Message from ${styledTeammate(theme, `@${from}`, data.color)}`;
+				if (!options.expanded)
+					return [safeTruncateToWidth(`${headLine}${hasBody ? theme.fg("dim", " (Ctrl+O to expand)") : ""}`, width)];
+				// Expanded: the identical head minus the hint, then the full body as
+				// `│ `-railed quote rows (2-space indent + rail on every physical
+				// line including blanks), verbatim after the clean/lines guards.
+				const rails = contentLines.map((line) => (line.trim() ? `  │ ${line}` : "  │"));
+				return [headLine, ...rails].map((line) => safeTruncateToWidth(line, width));
 			},
 		};
 	});

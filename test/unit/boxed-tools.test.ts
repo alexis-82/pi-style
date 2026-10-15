@@ -1001,7 +1001,7 @@ describe("boxed tool decoration owner", () => {
 				context({ toolCallId: "t1" }),
 			);
 			expect(leaderComponent).not.toBe(EMPTY_BATCH_COMPONENT);
-			expect(stripAnsi(leaderComponent.render(80).join("\n"))).toContain("◈ Thought 0 times · Called 2 tools");
+			expect(stripAnsi(leaderComponent.render(80).join("\n"))).toContain("◈ Called 2 tools");
 
 			const callComponent = (callRenderer as (a: unknown, t: unknown, c: unknown) => { render(w: number): string[] })(
 				{ taskId: "3" },

@@ -1,12 +1,26 @@
 // Presentation-only adapters for pi-teams tools. Never read its files or own its run state.
+import { pathToFileURL } from "node:url";
 import type { Component } from "@earendil-works/pi-tui";
+import { getCapabilities, hyperlink } from "@earendil-works/pi-tui";
 import { fgHex, isHexColor, stripAnsi } from "../../../shared/ansi.js";
 import type { BoxTheme } from "../../../shared/box.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { type BatchToolMeta, EMPTY_BATCH_COMPONENT, registerBatchCall, registerBatchResult } from "./batch.js";
-import { getToolsRenderConfig } from "./session-config.js";
+import { compactToolPath } from "./path.js";
+import { isResultSeen, markResultSeen, teamEventGlyph } from "./session-config.js";
 import type { BoxedToolDefinition, BoxedToolResult } from "./shared.js";
-import { rememberTeammateResult, rememberTeammateRun, teammateColorForRun, teammateForRun } from "./team-run-labels.js";
+import { formatDuration, formatTokens, normalizeModelLabel, normalizePreview } from "./shared.js";
+import {
+	hasTeammateRunHandle,
+	rememberTeammateResult,
+	rememberTeammateRun,
+	rememberTeammateRunHandle,
+	settlementForRun,
+	settleTeammateRun,
+	type TeammateRunSettlement,
+	teammateColorForRun,
+	teammateForRun,
+} from "./team-run-labels.js";
 
 export const TEAM_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"Agent",
@@ -68,8 +82,6 @@ const details = (result: BoxedToolResult): Record<string, unknown> =>
 // establish an effective mode. Explicit modes split adjacent batches.
 const modeKey = (args: Record<string, unknown>): "background" | "foreground" | "unspecified" =>
 	args.run_in_background === true ? "background" : args.run_in_background === false ? "foreground" : "unspecified";
-const plural = (n: number): string => (n === 1 ? "teammate" : "teammates");
-const glyph = (): string => (getToolsRenderConfig().nerdFonts ? "\uf086" : "✉");
 // An absent pi-teams color gets the theme's generic accent, not an invented
 // teammate-specific color. Keep the ANSI span limited to the @reference.
 const styledTeammate = (theme: BoxTheme, label: string, color?: unknown): string =>
@@ -104,18 +116,63 @@ function agentDetail(args: Record<string, unknown>, theme: BoxTheme, result?: Bo
 					: "";
 	// Color and name are optional metadata from the owning runtime, never
 	// inferred from specialist definitions or teammate names.
-	const parts = [who ? styledTeammate(theme, `@${who}`, data.color) : description || "Teammate"];
-	if (intent) parts.push(intent);
+	const parts = [who ? styledTeammate(theme, `@${who}`, data.color) : description || theme.fg("dim", "Teammate")];
 	if (who && description) parts.push(description);
-	// Only the admitted model is authoritative; retain its canonical ref.
+	// Only the admitted model is authoritative; the canonical ref stays in the
+	// detail and collapsed rows clip it to the short label (§3/§6).
 	if (typeof data.model === "string") parts.push(clean(data.model, 120));
-	if (typeof data.thinking === "string") parts.push(`thinking ${short(data.thinking)}`);
+	if (intent) parts.push(theme.fg("dim", intent));
+	if (typeof data.thinking === "string") parts.push(theme.fg("dim", `thinking ${short(data.thinking)}`));
 	// Definition pins override max_turns in the invocation. Only an effective
 	// limit published by pi-teams is safe to label as the actual maximum.
 	if (typeof data.maxTurns === "number" && Number.isSafeInteger(data.maxTurns) && data.maxTurns > 0)
-		parts.push(`max ${data.maxTurns} turns`);
+		parts.push(theme.fg("dim", `max ${data.maxTurns} turns`));
 	return parts.join(" · ");
 }
+
+/** Run-level settlement state of one Agent member (ADR 0012 §1/§5): the glyph
+ *  tracks the run, not the tool call — `◌` while a live handle exists, `●`/`✗`/
+ *  `○` once settled, `●` from admission when no live state exists (resume). */
+function memberEvent(
+	member: { runId?: string; isError?: boolean },
+	live: boolean,
+): {
+	glyph: string;
+	color: string;
+	settlement?: TeammateRunSettlement;
+} {
+	const settlement = member.runId ? settlementForRun(member.runId) : undefined;
+	if (settlement) {
+		if (settlement.outcome === "failed") return { glyph: teamEventGlyph("failed"), color: "error", settlement };
+		if (settlement.outcome === "stopped") return { glyph: teamEventGlyph("stopped"), color: "dim", settlement };
+		return { glyph: teamEventGlyph("settled"), color: "success", settlement };
+	}
+	if (member.isError) return { glyph: teamEventGlyph("failed"), color: "error" };
+	// A live in-process handle means the run is still in flight; without one
+	// (resume/replay) the row renders settled from admission, muted — the
+	// notification alone claims an outcome. Pre-admission rows track the live
+	// execution flag instead (hollow while running, settled on replay).
+	const running = member.runId !== undefined ? hasTeammateRunHandle(member.runId) : live;
+	return { glyph: teamEventGlyph(running ? "running" : "settled"), color: "muted" };
+}
+
+/** ` · 2m 03s · ↓146.5k` line tail from settlement data; absent producer
+ *  fields are omitted silently (never fabricated, ADR 0012 §1/§4). */
+function settlementTail(settlement: TeammateRunSettlement | undefined): string {
+	if (!settlement) return "";
+	const parts = [formatDuration(settlement.durationMs), formatTokens(settlement.totalTokens)].filter(
+		(part): part is string => part !== undefined,
+	);
+	return parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
+}
+
+/** Collapsed rows clip the member's admitted model to its short label;
+ *  expanded rows keep the canonical full ref (authoritative for Agent.model). */
+function memberDetail(member: { detail: string; modelRef?: string }, expanded: boolean): string {
+	if (expanded || !member.modelRef) return member.detail;
+	return member.detail.split(member.modelRef).join(normalizeModelLabel(member.modelRef));
+}
+
 function agentLine(
 	theme: BoxTheme,
 	batch: {
@@ -123,6 +180,8 @@ function agentLine(
 		members: readonly {
 			toolCallId: string;
 			detail: string;
+			modelRef?: string;
+			runId?: string;
 			effectiveMode?: "background" | "foreground";
 			isError?: boolean;
 			errorText?: string;
@@ -131,23 +190,42 @@ function agentLine(
 			receiptText?: string;
 		}[];
 	},
-	mode: string,
 	expanded: boolean,
+	live: boolean,
 ): string[] {
 	const members = batch.members;
-	const confirmed =
-		mode === "unspecified" && members.every((m) => m.effectiveMode === "background")
-			? "background"
-			: mode === "unspecified" && members.every((m) => m.effectiveMode === "foreground")
-				? "foreground"
-				: mode;
-	const title = `${theme.fg("muted", "●")} Spawn ${members.length === 1 ? "" : `${members.length} `}${confirmed === "unspecified" ? "" : `${confirmed} `}${plural(members.length)}`;
+	const events = members.map((member) => memberEvent(member, live));
+	const settledCount = events.filter((event, i) => {
+		const member = members[i];
+		return Boolean(event.settlement || member?.isError || (member?.runId && !hasTeammateRunHandle(member.runId)));
+	}).length;
+	const failedCount = events.filter((event, i) => event.settlement?.outcome === "failed" || members[i]?.isError).length;
+	const headEvent = failedCount
+		? { glyph: teamEventGlyph("failed"), color: "error" }
+		: settledCount === members.length && members.length > 0
+			? { glyph: teamEventGlyph("settled"), color: "success" }
+			: { glyph: teamEventGlyph("running"), color: "muted" };
 	const max = expanded ? members.length : Math.min(3, members.length);
-	const lines = [title];
-	if (members.length === 1) lines[0] += ` ${members[0]?.detail ?? ""}`;
-	if (members.length > 1)
-		for (let i = 0; i < max; i++) lines.push(`${i === members.length - 1 ? "└─" : "├─"} ${members[i]?.detail ?? ""}`);
-	if (max < members.length) lines.push(`   … ${members.length - max} more · Ctrl+O to expand`);
+	const lines: string[] = [];
+	if (members.length === 1) {
+		const event = events[0] ?? { glyph: teamEventGlyph("running"), color: "muted" };
+		const member = members[0];
+		lines.push(
+			`${theme.fg(event.color, event.glyph)} Agent ${member ? memberDetail(member, expanded) : ""}${settlementTail(event.settlement)}`,
+		);
+	} else {
+		lines.push(
+			`${theme.fg(headEvent.color, headEvent.glyph)} Agent (${members.length}) · ${settledCount}/${members.length}`,
+		);
+		for (let i = 0; i < max; i++) {
+			const event = events[i] ?? { glyph: teamEventGlyph("running"), color: "muted" };
+			const member = members[i];
+			lines.push(
+				`${i === members.length - 1 ? "└─" : "├─"} ${theme.fg(event.color, event.glyph)} ${member ? memberDetail(member, expanded) : ""}${settlementTail(event.settlement)}`,
+			);
+		}
+		if (max < members.length) lines.push(`   … ${members.length - max} more · Ctrl+O to expand`);
+	}
 	for (const member of members) {
 		const foreground = member.effectiveMode === "foreground";
 		const ownLeader = member.toolCallId === batch.leaderId;
@@ -179,8 +257,12 @@ export const agentTool: BoxedToolDefinition = {
 		const known = context.state.teamAgentDetails;
 		const cached = known && typeof known === "object" ? { details: known } : undefined;
 		const { batch, isLeader } = registerBatchCall(agentMeta(mode), agentDetail(args, theme, cached), context);
+		const self = batch.members.find((item) => item.toolCallId === context.toolCallId);
+		const cachedData = details(cached ?? {});
+		if (self && typeof cachedData.model === "string") self.modelRef = clean(cachedData.model, 120);
+		if (self && typeof cachedData.agentId === "string") self.runId = cachedData.agentId;
 		if (!isLeader) return EMPTY_BATCH_COMPONENT;
-		return rows(() => agentLine(theme, batch, mode, context.expanded), 10000);
+		return rows(() => agentLine(theme, batch, context.expanded, context.executionStarted), 10000);
 	},
 	result(result, options, theme, context) {
 		const mode = modeKey(context.args);
@@ -191,23 +273,39 @@ export const agentTool: BoxedToolDefinition = {
 			rememberTeammateRun(result.details, context.args);
 		}
 		const { batch } = registerBatchCall(agentMeta(mode), agentDetail(context.args, theme, result), context);
+		const data = details(result);
 		if (!options.isPartial) {
 			const member = batch.members.find((item) => item.toolCallId === context.toolCallId);
 			const confirmed =
-				details(result).background === true
+				data.background === true
 					? "background"
-					: typeof details(result).agentId === "string"
+					: typeof data.agentId === "string"
 						? "foreground"
 						: mode === "unspecified"
 							? undefined
 							: mode;
 			if (member && confirmed) member.effectiveMode = confirmed;
+			// Run identity + admitted model key the row glyph and the short
+			// collapsed label (ADR 0012 §3/§5).
+			if (member && typeof data.model === "string") member.modelRef = clean(data.model, 120);
+			if (member && typeof data.agentId === "string") member.runId = data.agentId;
 		}
-		const data = details(result);
 		const output = rawText(result);
 		const failed = context.isError || data.status === "error" || !!data.error;
 		const hasRunIdentity = typeof data.agentId === "string";
 		const foreground = data.background === true ? false : hasRunIdentity || mode === "foreground";
+		if (!options.isPartial && hasRunIdentity) {
+			if (foreground) {
+				// A foreground run settles with its own tool result — there is no
+				// completion notification to supersede the row (ADR 0012 §5).
+				settleTeammateRun(data.agentId, { outcome: failed ? "failed" : "completed" });
+			} else if (context.executionStarted) {
+				// A live background run stays hollow until the completion
+				// notification supersedes it (ADR 0012 §5). Replayed results do
+				// not register handles, so resumed rows render `●` from admission.
+				rememberTeammateRunHandle(data.agentId, { state: context.state, invalidate: context.invalidate });
+			}
+		}
 		const validationReceipt = !failed && !hasRunIdentity && data.background !== true && output.length > 0;
 		const failureText = output || (typeof data.error === "string" ? data.error : "Agent admission failed");
 		const notice = [
@@ -265,72 +363,80 @@ function teammateLabel(args: Record<string, unknown>, key: string, theme: BoxThe
 			: styledTeammate(theme, `@${value}`, key === "agent_id" ? teammateColorForRun(args[key]) : undefined)
 		: "teammate";
 }
+/** Shared minimal message card (ADR 0012 §9). The collapsed line answers only
+ *  "who → whom"; the body lives entirely behind expansion; receipts are dropped
+ *  because the settled glyph itself is the receipt (success quiet, failure
+ *  loud). No envelope glyph exists anywhere. */
 function messageTool(
-	make: (args: Record<string, unknown>, theme: BoxTheme) => string,
+	key: "target" | "agent_id",
+	head: (label: string) => string,
+	failurePrefix: string,
 	accepted: RegExp,
-	confirmation: string,
 ): BoxedToolDefinition {
+	// The thinking-quote rail language, not tree rows: 2-space indent + `│ ` on
+	// every physical line including blanks (ADR 0012 §9).
+	const quoteRows = (body: string): string[] =>
+		physicalLines(body).map((line) => (line.trim() ? `  │ ${line.replace(/\s+$/, "")}` : "  │"));
 	return {
-		call: (args, theme, context) =>
-			rows(() => [`${make(args, theme)}${context.state.teamMessageAccepted === true ? ` · ${confirmation}` : ""}`], 1),
-		result: (result, options, theme, context) => {
+		call: (args, theme, context) => {
+			const label = teammateLabel(args, key, theme);
+			const hasBody = typeof args.message === "string" && args.message.trim() !== "";
+			// The failure state is written by the result renderer; reading it inside
+			// the render closure keeps the one-line card current (ADR 0012 §9).
+			const cardLines = (expanded: boolean): string[] => {
+				const failure =
+					typeof context.state.teamMessageFailure === "string" ? context.state.teamMessageFailure : undefined;
+				const glyph = failure
+					? theme.fg("error", teamEventGlyph("failed"))
+					: theme.fg("muted", teamEventGlyph("settled"));
+				const headLine = failure ? `${glyph} ${head(label)} · ${failurePrefix}${failure}` : `${glyph} ${head(label)}`;
+				if (!expanded) return [`${headLine}${hasBody && !failure ? theme.fg("dim", " (Ctrl+O to expand)") : ""}`];
+				const rails = hasBody && typeof args.message === "string" ? quoteRows(args.message) : [];
+				return [headLine, ...rails];
+			};
+			if (!context.expanded) return rows(() => cardLines(false), 1);
+			const railCount = hasBody && typeof args.message === "string" ? physicalLines(args.message).length : 0;
+			return rows(() => cardLines(true), 1 + railCount);
+		},
+		result: (result, options, _theme, context) => {
 			if (options.isPartial) return empty;
 			const text = rawText(result);
-			if (accepted.test(text)) {
-				context.state.teamMessageAccepted = true;
-				return options.expanded
-					? rows(
-							() =>
-								stripAnsi(text)
-									.split("\n")
-									.map((line) => `└─ ${clean(line, 2000)}`),
-							20,
-						)
-					: empty;
-			}
-			const lines = options.expanded
-				? stripAnsi(text)
-						.split("\n")
-						.map((line) => clean(line, 2000))
-				: [clean(text, 200)];
-			return rows(
-				() => lines.map((line, index) => theme.fg("error", `${index === 0 ? "└─ " : "   "}${line}`)),
-				options.expanded ? 40 : 1,
-			);
+			// Success stays quiet; a failure re-renders the call card loud via the
+			// stored reason (ADR 0012 §9). Malformed text still degrades to a
+			// cleaned plain reason — nothing is lost verbatim beyond the budget.
+			if (!accepted.test(text)) context.state.teamMessageFailure = clean(text, 200) || "failed";
+			return empty;
 		},
 	};
 }
 
 export const sendMessageTool = messageTool(
-	(args, theme) =>
-		`${theme.fg("muted", glyph())} Message → ${teammateLabel(args, "target", theme)} · “${clean(args.message, 100)}”`,
+	"target",
+	(label) => `Message to ${label}`,
+	"not sent: ",
 	/^Message queued for @/,
-	"queued",
 );
-export const steerTool = messageTool(
-	(args, theme) =>
-		`${theme.fg("muted", glyph())} Steer ${teammateLabel(args, "agent_id", theme)} · “${clean(args.message, 100)}”`,
-	/^Steering accepted/,
-	"accepted",
-);
+export const steerTool = messageTool("agent_id", (label) => `Steer to ${label}`, "", /^Steering accepted/);
 
 // get_subagent_result returns a formatted text record, not structured details.
 // A malformed or changed record remains accessible verbatim when expanded.
 export const getAgentResultTool: BoxedToolDefinition = {
-	call(args, theme) {
+	call(args, theme, context) {
 		return rows(() => {
 			const teammate = teammateForRun(args.agent_id);
 			const label = typeof teammate === "string" ? `@${teammate}` : short(args.agent_id) || "teammate";
 			const styledLabel = teammate ? styledTeammate(theme, label, teammateColorForRun(args.agent_id)) : label;
-			return [`${theme.fg("muted", "●")} Get result ${styledLabel}${args.wait === true ? " · wait" : ""}`];
+			// `◌ Get result @name` while waiting; `●` once the result exists (§8).
+			const glyph = theme.fg("muted", teamEventGlyph(isResultSeen(context.state) ? "settled" : "running"));
+			return [`${glyph} Get result ${styledLabel}${args.wait === true ? " · wait" : ""}`];
 		}, 1);
 	},
 	result(result, options, theme, context) {
+		markResultSeen(context.state);
 		if (options.isPartial) return empty;
 		const text = stripAnsi(rawText(result));
 		const admitted = teammateForRun(context.args.agent_id);
 		rememberTeammateResult(context.args.agent_id, text);
-		const status = /^Type:.*\| Status: ([a-z_]+)/m.exec(text)?.[1];
 		const teammate = /^Teammate: (@[A-Za-z0-9][A-Za-z0-9._-]{0,63})(?=\s|$)/m.exec(text)?.[1];
 		const color = teammate === `@${admitted}` ? teammateColorForRun(context.args.agent_id) : undefined;
 		if (options.expanded)
@@ -344,14 +450,11 @@ export const getAgentResultTool: BoxedToolDefinition = {
 					}),
 				10000,
 			);
-		const body = text.split("\n\n").slice(1).join(" ").trim();
-		const suffix = `${status ? `${teammate ? " · " : ""}${status}` : ""}${(teammate || status) && body ? " · " : ""}${clean(body || text, 160)}`;
-		return rows(
-			() => [
-				`${theme.fg("dim", "└─ ")}${teammate ? styledTeammate(theme, teammate, color) : ""}${theme.fg("dim", suffix)}`,
-			],
-			1,
-		);
+		// Collapsed: the shared preview collapse (§2) parses the record header as
+		// labeled fields and drops `Type:`/`Teammate:` noise so `@name` never
+		// prints twice (§8). Malformed records fall back to cleaned verbatim lines.
+		const preview = normalizePreview(text, { dropFields: ["Type", "Teammate"] }) || clean(text, 160) || "(no output)";
+		return rows(() => [theme.fg("dim", `└ ${preview}`)], 1);
 	},
 };
 
@@ -374,7 +477,10 @@ function taskSummary(task: Task, theme: BoxTheme): string {
 	if (blockers.length) parts.push(`blocked by ${blockers.map((item) => clean(item, 24)).join(",")}`);
 	return parts.filter(Boolean).join(" · ");
 }
-function outcomeLines(outcome: unknown, theme: BoxTheme, expanded = false): string[] {
+/** Full outcome dump used only by the tasks_get detail (ADR 0013: that
+ *  surface's rendering stays byte-identical, so its audit shape is pinned
+ *  here instead of following the delta-card formatter below). */
+function auditOutcomeLines(outcome: unknown, theme: BoxTheme, expanded = false): string[] {
 	if (!isRecord(outcome)) return [];
 	const lines: string[] = [];
 	const appendText = (label: string, text: string) => {
@@ -412,6 +518,120 @@ function outcomeLines(outcome: unknown, theme: BoxTheme, expanded = false): stri
 		for (const issue of outcome.remainingIssues) if (typeof issue === "string") appendText("Remaining:", issue);
 	return lines.map((line) => theme.fg("dim", `  ${line}`));
 }
+
+/** Outcome compression (ADR 0013 §2): counts only — `4 checks: 4 passed ·
+ *  1 issue remaining · 3 artifacts`. Failed checks never hide inside the
+ *  counts; they also break out into their own loud rows (see failedCheckRows). */
+function outcomeCompression(outcome: unknown): string {
+	if (!isRecord(outcome)) return "";
+	const segments: string[] = [];
+	const verification = Array.isArray(outcome.verification) ? outcome.verification.filter(isRecord) : [];
+	if (verification.length > 0) {
+		const passed = verification.filter((item) => item.outcome === "passed").length;
+		const failed = verification.filter((item) => item.outcome === "failed").length;
+		segments.push(
+			`${verification.length} check${verification.length === 1 ? "" : "s"}: ${passed} passed${failed > 0 ? ` · ${failed} failed` : ""}`,
+		);
+	}
+	const issues = Array.isArray(outcome.remainingIssues) ? outcome.remainingIssues : [];
+	if (issues.length > 0) segments.push(`${issues.length} issue${issues.length === 1 ? "" : "s"} remaining`);
+	const artifacts = Array.isArray(outcome.artifacts) ? outcome.artifacts : [];
+	if (artifacts.length > 0) segments.push(`${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}`);
+	return segments.join(" · ");
+}
+
+/** Every failed verification check as its own loud `✗ <check>` row (ADR 0013
+ *  §2): successes compress, failures never do. */
+function failedCheckRows(outcome: unknown, theme: BoxTheme): string[] {
+	if (!isRecord(outcome) || !Array.isArray(outcome.verification)) return [];
+	return outcome.verification
+		.filter(isRecord)
+		.filter((item) => item.outcome === "failed")
+		.map((item) => (typeof item.check === "string" ? clean(item.check, 300) : ""))
+		.filter(Boolean)
+		.map((check) => theme.fg("error", `✗ ${check}`));
+}
+
+/** Clip one artifact path for a delta-card row (ADR 0013 §3); real absolute
+ *  paths additionally hyperlink via the existing capability logic. */
+function artifactRow(path: string, branch: string, theme: BoxTheme): string {
+	const clipped = compactToolPath(path, 48);
+	const link =
+		path.startsWith("/") && getCapabilities().hyperlinks ? hyperlink(clipped, pathToFileURL(path).href) : clipped;
+	return theme.fg("dim", `  ${branch} ↗ ${link}`);
+}
+
+/** Outcome formatter for delta cards (ADR 0013 §2/§3) — the single place task
+ *  outcomes are formatted outside the pinned tasks_get audit dump. Collapsed:
+ *  the count compression plus loud failed-check rows. Expanded: `│ `-railed
+ *  Summary rows, `↗` artifact tree rows with middle-clipped paths, `✓/✗`
+ *  verification rows with the first evidence line, railed remaining issues. */
+function outcomeLines(outcome: unknown, theme: BoxTheme, expanded = false): string[] {
+	if (!isRecord(outcome)) return [];
+	if (!expanded) {
+		const compression = outcomeCompression(outcome);
+		return compression
+			? [theme.fg("dim", compression), ...failedCheckRows(outcome, theme)]
+			: failedCheckRows(outcome, theme);
+	}
+	const lines: string[] = [];
+	const rail = (text: string): string => theme.fg("dim", text.trim() ? `  │ ${text.replace(/\s+$/, "")}` : "  │");
+	if (typeof outcome.summary === "string") {
+		const physical = physicalLines(outcome.summary);
+		if (physical.length > 0)
+			lines.push(rail(`Summary: ${physical[0] ?? ""}`), ...physical.slice(1).map((line) => rail(line)));
+	}
+	const artifacts = Array.isArray(outcome.artifacts)
+		? outcome.artifacts.map((path) => clean(path, 500)).filter(Boolean)
+		: [];
+	for (const [index, path] of artifacts.entries())
+		lines.push(artifactRow(path, index === artifacts.length - 1 ? "└─" : "├─", theme));
+	const verification = Array.isArray(outcome.verification) ? outcome.verification.filter(isRecord) : [];
+	for (const item of verification) {
+		const failed = item.outcome === "failed";
+		const glyph = failed ? "✗" : item.outcome === "passed" ? "✓" : "○";
+		const check = typeof item.check === "string" ? clean(item.check, 1000) : "";
+		const evidence =
+			typeof item.evidence === "string"
+				? stripAnsi(item.evidence)
+						.split("\n")
+						.map((line) => clean(line, 1000))
+						.find(Boolean)
+				: undefined;
+		lines.push(theme.fg(failed ? "error" : "dim", `  ${glyph} ${check}${evidence ? ` — ${evidence}` : ""}`));
+	}
+	const issues = Array.isArray(outcome.remainingIssues) ? outcome.remainingIssues : [];
+	for (const issue of issues)
+		if (typeof issue === "string") {
+			const physical = physicalLines(issue);
+			if (physical.length > 0)
+				lines.push(rail(`Remaining: ${physical[0] ?? ""}`), ...physical.slice(1).map((line) => rail(line)));
+		}
+	return lines;
+}
+
+/** Mutation delta row (ADR 0013 §1): verb + actor per status, with the outcome
+ *  compression tail for completed results. Undefined for unmapped statuses —
+ *  the caller falls back to the existing `code · title · status` summary
+ *  (fail-closed, never invented verbs). */
+function taskDelta(name: string, task: Task, theme: BoxTheme): string | undefined {
+	const code = taskCode(task);
+	const status = clean(task.status, 24);
+	const owner = short(task.owner ?? task.assignee);
+	const actor = owner ? ` · ${styledTeammate(theme, `@${owner}`)}` : "";
+	if (name === "tasks_create") return `${code} created${status ? ` · ${status}` : ""}`;
+	if (name === "tasks_cancel") return `${code} cancelled`;
+	if (name === "tasks_update") {
+		if (status === "in_progress") return `${code} claimed${actor}`;
+		if (status === "in_review") return `${code} submitted for review${actor}`;
+		if (status === "pending") return `${code} claim released`;
+		if (status === "completed") {
+			const compression = outcomeCompression(task.outcome);
+			return `${code} accepted${actor}${compression ? ` · ${compression}` : ""}`;
+		}
+	}
+	return undefined;
+}
 function taskDetail(task: Task, theme: BoxTheme): string[] {
 	const lines = [`${taskCode(task)} ${clean(task.title, 300)} · ${clean(task.status, 30)}`];
 	for (const key of [
@@ -440,7 +660,7 @@ function taskDetail(task: Task, theme: BoxTheme): string[] {
 					);
 					if (typeof attempt.partialResult === "string")
 						lines.push(...attempt.partialResult.split("\n").map((line) => `    ${clean(line, 2000)}`));
-					if (attempt.result) lines.push(...outcomeLines(attempt.result, theme, true));
+					if (attempt.result) lines.push(...auditOutcomeLines(attempt.result, theme, true));
 				}
 		} else if (key === "spec" || key === "context" || key === "executionPlan")
 			lines.push(
@@ -455,10 +675,42 @@ function taskDetail(task: Task, theme: BoxTheme): string[] {
 		else
 			lines.push(`${key}: ${Array.isArray(value) ? value.map((x) => clean(x, 120)).join(", ") : clean(value, 1200)}`);
 	}
-	if (task.outcome) lines.push(...outcomeLines(task.outcome, theme, true));
+	if (task.outcome) lines.push(...auditOutcomeLines(task.outcome, theme, true));
 	return lines;
 }
 const textResult = (result: BoxedToolResult): string => rawText(result);
+
+/** Display-name dedupe normalization (§6): lowercase, non-alphanumerics stripped. */
+const normalizeModelToken = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** `provider/modelId — Name` row parser for the list_models card (ADR 0012
+ *  §6). Returns undefined unless every content line parses — anything else
+ *  keeps the verbatim fail-closed fallback. A trailing `N of M matching models
+ *  shown` line lifts into the header. */
+function parseModelRows(
+	raw: string,
+): { rows: { ref: string; display?: string }[]; shown?: { n: number; m: number } } | undefined {
+	const lines = raw
+		.split("\n")
+		.map((line) => stripAnsi(line).trim())
+		.filter(Boolean);
+	if (lines.length === 0) return undefined;
+	const trailer = /^(\d+) of (\d+) matching models shown$/.exec(lines.at(-1) ?? "");
+	const contentLines = trailer ? lines.slice(0, -1) : lines;
+	if (contentLines.length === 0) return undefined;
+	const rows: { ref: string; display?: string }[] = [];
+	for (const line of contentLines) {
+		const match = /^(\S+) — (.+)$/.exec(line);
+		if (!match) return undefined;
+		rows.push({ ref: match[1] ?? "", ...(match[2]?.trim() ? { display: match[2]?.trim() } : {}) });
+	}
+	if (!trailer) return { rows };
+	const n = Number(trailer[1]);
+	const m = Number(trailer[2]);
+	if (!Number.isSafeInteger(n) || !Number.isSafeInteger(m)) return undefined;
+	return { rows, shown: { n, m } };
+}
+
 function teamTool(name: string): BoxedToolDefinition {
 	return {
 		call(args, theme) {
@@ -501,22 +753,44 @@ function teamTool(name: string): BoxedToolDefinition {
 			}
 			if (isRecord(value) && (typeof value.title === "string" || typeof value.status === "string")) {
 				if (name === "tasks_get" && options.expanded) return rows(() => taskDetail(value, theme), 10000);
-				const lines = [`${prefix}${taskSummary(value, theme)}`];
-				if (value.outcome) lines.push(...outcomeLines(value.outcome, theme, options.expanded));
-				if (options.expanded && typeof value.description === "string")
-					lines.push(...value.description.split("\n").map((line) => `  ${clean(line, 2000)}`));
-				return rows(() => lines, 8);
+				// Mutation results answer "what changed" (ADR 0013 §1); tasks_get
+				// reads and unmapped/error results keep the full summary line.
+				const delta = !error ? taskDelta(name, value, theme) : undefined;
+				if (delta === undefined) {
+					const lines = [`${prefix}${taskSummary(value, theme)}`];
+					if (value.outcome) lines.push(...outcomeLines(value.outcome, theme, options.expanded));
+					if (options.expanded && typeof value.description === "string")
+						lines.push(...value.description.split("\n").map((line) => `  ${clean(line, 2000)}`));
+					return rows(() => lines, 8);
+				}
+				// Delta rows hang from the dash-less `└` card family (ADR 0013 §1);
+				// tree glyphs stay reserved for tasks_list/tasks_get rows. Failed-check
+				// breakouts are collapsed-only — expanded rows carry full ✓/✗ detail.
+				const lines = [
+					`${theme.fg("dim", "└ ")}${delta}`,
+					...(options.expanded ? [] : failedCheckRows(value.outcome, theme)),
+				];
+				if (options.expanded) {
+					if (value.outcome) lines.push(...outcomeLines(value.outcome, theme, true));
+					if (typeof value.description === "string")
+						lines.push(...value.description.split("\n").map((line) => `  ${clean(line, 2000)}`));
+				}
+				return rows(() => lines, options.expanded ? 10000 : 8);
 			}
 			if (name === "tasks_execute" && isRecord(value)) {
 				const task = isRecord(value.task) ? value.task : {};
 				const attempt = Array.isArray(task.attempts) ? task.attempts.at(-1) : undefined;
-				const runId = clean(value.runId, 100);
+				const teammate = clean(isRecord(attempt) ? attempt.teammateName : "", 64);
+				const actor = teammate ? styledTeammate(theme, `@${teammate}`) : "teammate";
+				const status = clean(task.status, 24);
+				// `T5 · in_progress · attempt → @teammate` — no disclaimer row; the
+				// model still reads the disclaimer in the tool text (ADR 0013 §1).
 				const lines = [
-					`${prefix}${taskCode(task)} ${clean(task.title, 100)} → ${clean(isRecord(attempt) ? attempt.teammateName : "", 64) || "teammate"} → ${runId || "run pending"}`,
+					`${error ? prefix : theme.fg("dim", "└ ")}${taskCode(task)}${status ? ` · ${status}` : ""} · attempt → ${actor}`,
 				];
-				if (typeof task.status === "string")
-					lines.push(`Task status: ${clean(task.status, 24)} (attempt execution does not imply task acceptance)`);
-				return rows(() => lines, 3);
+				const runId = clean(value.runId, 100);
+				if (options.expanded && runId) lines.push(theme.fg("dim", `  run ${runId}`));
+				return rows(() => lines, 2);
 			}
 			if (name === "tasks_output" && isRecord(value)) {
 				const attempt = isRecord(value.attempt) ? value.attempt : {};
@@ -527,17 +801,59 @@ function teamTool(name: string): BoxedToolDefinition {
 				];
 				if (typeof value.error === "string")
 					lines.push(theme.fg("error", `  ERROR ${clean(value.error, options.expanded ? 2000 : 240)}`));
-				if (output)
-					lines.push(
-						...(options.expanded ? output.split("\n").map((line) => clean(line, 2000)) : [clean(output, 180)]).map(
-							(line) => `  ${line}`,
-						),
-					);
+				if (output) {
+					if (options.expanded) lines.push(...output.split("\n").map((line) => `  ${clean(line, 2000)}`));
+					else
+						lines.push(
+							theme.fg(
+								"dim",
+								`  └ ${normalizePreview(output, { dropFields: ["Status", "Teammate"] }) || clean(output, 180)}`,
+							),
+						);
+				}
 				return rows(() => lines, options.expanded ? 10000 : 3);
 			}
-			if (name === "tasks_stop" && isRecord(value))
-				return rows(() => [`${prefix}${value.stopped === true ? "stop requested" : "no running attempt"}`], 1);
-			if (name === "list_models") {
+			if (name === "tasks_stop" && isRecord(value)) {
+				const task = isRecord(value.task) ? value.task : { id: context.args.id };
+				const code = taskCode(task);
+				const stopped = value.stopped === true;
+				const text = stopped ? `${code} attempt stop requested`.trim() : "no running attempt";
+				const line = error ? `${prefix}${text}` : stopped ? `${theme.fg("dim", "└ ")}${text}` : text;
+				return rows(() => [line], 1);
+			}
+			if (name === "list_models" && !error) {
+				const parsed = parseModelRows(raw);
+				if (parsed) {
+					const query = clean(context.args.query, 60);
+					const shown = parsed.shown ? ` · ${parsed.shown.n}/${parsed.shown.m}` : "";
+					const header = `${theme.fg("muted", teamEventGlyph("settled"))} Models${query ? ` · ${query}` : ""}${shown}`;
+					// Collapsed rows show the id tail; expanded rows and the single-match
+					// `└` row keep the canonical full ref — the copyable payload (§6).
+					const label = (row: { ref: string; display?: string }): string => {
+						const full = options.expanded || parsed.rows.length === 1;
+						const id = full ? row.ref : normalizeModelLabel(row.ref);
+						const display =
+							row.display && normalizeModelToken(row.display) !== normalizeModelToken(normalizeModelLabel(row.ref))
+								? ` — ${row.display}`
+								: "";
+						return `${id}${display}`;
+					};
+					const bodyRows = parsed.rows.map((row, index) =>
+						theme.fg("dim", `${index === parsed.rows.length - 1 ? "└─" : "├─"} ${label(row)}`),
+					);
+					const count = options.expanded ? bodyRows.length : 4;
+					return rows(
+						() => [
+							header,
+							...bodyRows.slice(0, count),
+							...(bodyRows.length > count
+								? [theme.fg("dim", `   … ${bodyRows.length - count} more · Ctrl+O to expand`)]
+								: []),
+						],
+						count + 1,
+					);
+				}
+				// Unparseable results keep the verbatim fail-closed fallback (§6).
 				const modelLines = raw.split("\n").map((line) => clean(line, 2000));
 				const count = options.expanded ? modelLines.length : 4;
 				return rows(

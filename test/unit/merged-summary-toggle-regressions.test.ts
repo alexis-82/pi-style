@@ -333,7 +333,7 @@ describe("attribution and replay", () => {
 		const msg = message([call("failed_read"), call("failed_custom", "extension_tool", {})]);
 		const blocks = tools(msg, { failed_read: { isError: true }, failed_custom: { isError: true } }).components;
 		finish();
-		expect(rendered(blocks[0])).toContain("◈ Thought 0 times · Called 2 tools · 2 failures");
+		expect(rendered(blocks[0])).toContain("◈ Called 2 tools · 2 failures");
 		expect(rendered(blocks[0])).not.toContain("➔");
 		expect(blocks[1].render(160)).toEqual([]);
 		const click = () => {
@@ -360,9 +360,9 @@ describe("attribution and replay", () => {
 		click();
 		expect(blocks[1].render(160)).toEqual([]);
 		expect(rendered(blocks[0])).not.toContain("payload_failed_read");
-		expect(rendered(blocks[0])).toContain("◈ Thought 0 times · Called 2 tools · 2 failures");
+		expect(rendered(blocks[0])).toContain("◈ Called 2 tools · 2 failures");
 		setToolsRenderConfig({ mergedSummaryGlyph: ">" });
-		expect(rendered(blocks[0])).toContain("> Thought 0 times · Called 2 tools · 2 failures");
+		expect(rendered(blocks[0])).toContain("> Called 2 tools · 2 failures");
 	});
 
 	it("does not count an error result's unapplied diff", () => {
@@ -432,7 +432,7 @@ describe("attribution and replay", () => {
 		const blocks = tools(next).components;
 		finish();
 		expect(rendered(priorComp)).toBe(previousLabel);
-		expect(rendered(blocks[0])).toContain("◈ Thought 0 times · Called 1 tool");
+		expect(rendered(blocks[0])).toContain("◈ Called 1 tool");
 		expect(rendered(blocks[0])).not.toContain("➔");
 	});
 

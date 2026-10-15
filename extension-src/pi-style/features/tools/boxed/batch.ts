@@ -86,6 +86,12 @@ export interface BatchMember {
 	receiptText?: string;
 	/** Effective mode for optional pi-teams dispatches, when the runtime confirms it. */
 	effectiveMode?: "background" | "foreground";
+	/** Admitted run id (Agent members, ADR 0012 §5): keys run-level settlement
+	 *  lookups so the row glyph tracks the run, not the tool call. */
+	runId?: string;
+	/** Canonical admitted model ref (Agent members): collapsed rows show its
+	 *  short label; expanded rows keep the full ref (ADR 0012 §3). */
+	modelRef?: string;
 	/** find glob pattern (header detail for output panels). */
 	pattern?: string;
 	/** Display path (header detail for output panels). */

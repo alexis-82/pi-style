@@ -48,9 +48,69 @@ export function teammateColorForRun(agentId: unknown): string | undefined {
 	return id ? colorByRunId.get(id) : undefined;
 }
 
+/** Terminal run data written by the teammate-notification renderer (ADR 0012
+ *  §5). Duration/token fields are optional producer details; absent fields are
+ *  omitted silently by renderers, never fabricated. */
+export interface TeammateRunSettlement {
+	outcome: "completed" | "failed" | "stopped";
+	durationMs?: number;
+	totalTokens?: number;
+}
+
+/** Live Agent tool-call render handle, stored at result registration so the
+ *  notification renderer can flip the spawn row in-process (ADR 0012 §5). */
+interface TeammateRunHandle {
+	state: Record<string, unknown>;
+	invalidate: () => void;
+}
+
+const settlementByRunId = new Map<string, TeammateRunSettlement>();
+const handleByRunId = new Map<string, TeammateRunHandle>();
+
+function numberOrUndefined(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/** Store the render handle of a live Agent tool call (ADR 0012 §5). Replayed
+ *  results do not register handles, so resumed rows render `●` from admission
+ *  (the documented replay bound: hosts that re-invoke result renderers with
+ *  live semantics degrade replayed rows to `◌`). */
+export function rememberTeammateRunHandle(agentId: unknown, handle: TeammateRunHandle): void {
+	const id = runId(agentId);
+	if (id) handleByRunId.set(id, handle);
+}
+
+export function hasTeammateRunHandle(agentId: unknown): boolean {
+	const id = runId(agentId);
+	return id !== undefined && handleByRunId.has(id);
+}
+
+/** Write terminal run data and re-render the live spawn row (ADR 0012 §5).
+ *  Invalid outcomes are ignored (fail-closed); the write itself is replay-safe
+ *  and works without a live handle. */
+export function settleTeammateRun(agentId: unknown, settlement: TeammateRunSettlement): void {
+	const id = runId(agentId);
+	if (!id || !(["completed", "failed", "stopped"] as const).includes(settlement.outcome)) return;
+	const durationMs = numberOrUndefined(settlement.durationMs);
+	const totalTokens = numberOrUndefined(settlement.totalTokens);
+	settlementByRunId.set(id, {
+		outcome: settlement.outcome,
+		...(durationMs !== undefined ? { durationMs } : {}),
+		...(totalTokens !== undefined ? { totalTokens } : {}),
+	});
+	handleByRunId.get(id)?.invalidate();
+}
+
+export function settlementForRun(agentId: unknown): TeammateRunSettlement | undefined {
+	const id = runId(agentId);
+	return id ? settlementByRunId.get(id) : undefined;
+}
+
 export function resetTeammateRuns(): void {
 	teammateByRunId.clear();
 	colorByRunId.clear();
+	settlementByRunId.clear();
+	handleByRunId.clear();
 }
 
 /** Rebuild from the selected session branch, not the full file: forks and

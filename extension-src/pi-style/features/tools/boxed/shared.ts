@@ -1,6 +1,7 @@
 // Shared context/view types + common helpers for the boxed tool renderers.
 
 import type { Component } from "@earendil-works/pi-tui";
+import { stripAnsi } from "../../../shared/ansi.js";
 import type { BoxTheme } from "../../../shared/box.js";
 import {
 	boxedToolWidthKey,
@@ -14,6 +15,8 @@ import {
 	shortenPath,
 	themeCacheKey,
 } from "../../../shared/box.js";
+import { safeVisibleWidth } from "../../../shared/render-budget.js";
+import { compactToolPath } from "./path.js";
 import {
 	getStateElapsedMs,
 	getToolsRenderCacheSignature,
@@ -278,6 +281,144 @@ export function matchLimitReached(result: BoxedToolResult | undefined): number |
 	const details = result.details as { matchLimitReached?: number } | undefined;
 	const value = details?.matchLimitReached;
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+// ── Team transcript helpers (ADR 0012 §2) ─────────────────────────────────
+
+/** `2m 03s`-style duration from producer milliseconds. Invalid or absent input
+ *  yields undefined so callers omit the segment silently — never fabricated. */
+export function formatDuration(ms: unknown): string | undefined {
+	if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return undefined;
+	const totalSeconds = Math.round(ms / 1000);
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	const pad2 = (value: number): string => String(value).padStart(2, "0");
+	if (hours > 0) return `${hours}h ${pad2(minutes)}m`;
+	if (minutes > 0) return `${minutes}m ${pad2(seconds)}s`;
+	return `${seconds}s`;
+}
+
+/** `↓146.5k`-style token count. Invalid or absent input yields undefined so
+ *  callers omit the segment silently — never fabricated. */
+export function formatTokens(tokens: unknown): string | undefined {
+	if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) return undefined;
+	const compact = (value: number, suffix: string): string => {
+		const rounded = Math.round(value * 10) / 10;
+		return `${Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)}${suffix}`;
+	};
+	if (tokens >= 1e9) return `↓${compact(tokens / 1e9, "B")}`;
+	if (tokens >= 1e6) return `↓${compact(tokens / 1e6, "M")}`;
+	if (tokens >= 1e3) return `↓${compact(tokens / 1e3, "k")}`;
+	return `↓${Math.round(tokens)}`;
+}
+
+/** Model label tail after `/` (ADR 0012 §6): collapsed contexts show the short
+ *  id; expanded/full-detail contexts keep the canonical full ref. */
+export function normalizeModelLabel(modelRef: unknown): string {
+	if (typeof modelRef !== "string") return "";
+	const value = modelRef.trim();
+	const slash = value.lastIndexOf("/");
+	return slash >= 0 ? value.slice(slash + 1) || value : value;
+}
+
+export interface NormalizePreviewOptions {
+	/** Record-shape field keys dropped entirely (`Type`, `Teammate`, …). */
+	dropFields?: readonly string[];
+	/** Visible-width budget for middle-clipping long path tokens (default 48). */
+	pathWidth?: number;
+}
+
+/** Default visible-width budget for path tokens inside collapsed previews. */
+const PREVIEW_PATH_WIDTH = 48;
+
+/** Filesystem-looking tokens only (`/…`, `~/…`, `./…`, `../…`); URLs keep their shape. */
+const PREVIEW_PATH_PATTERN = /(^|[\s(\\"'])((?:~|\.{1,2})?\/[^\s"')\]]*)/g;
+
+/** Middle-clip long path tokens inside one preview line via compactToolPath. */
+function clipPreviewPaths(line: string, width: number): string {
+	return line.replace(PREVIEW_PATH_PATTERN, (_match, lead: string, token: string) =>
+		safeVisibleWidth(token) > width ? `${lead}${compactToolPath(token, width)}` : `${lead}${token}`,
+	);
+}
+
+/** Strip inline markdown markers, keeping the text (ADR 0012 §2). Heading
+ *  lines are dropped earlier: a heading-only line is a section title, not
+ *  content. */
+function stripInlineMarkdown(line: string): string {
+	return line.replace(/(\*\*|__)(.*?)\1/g, "$2").replace(/`+/g, "");
+}
+
+/** `Key: value` shape of one record segment (pipe segments are split first). */
+const LABELED_FIELD = /^([A-Za-z][A-Za-z0-9 ._-]{0,30}):\s?(.*)$/;
+
+/** Parse one cleaned line as `Key: value` record noise: pipe-separated segments
+ *  count as separate fields, `dropFields` keys disappear, and a ` — ` tail
+ *  becomes the prose candidate (ADR 0012 §2, §8). */
+function parseLabeledLine(line: string, drop: ReadonlySet<string>): { field?: string; proseTail?: string } | undefined {
+	const dashIndex = line.indexOf(" — ");
+	const headPart = dashIndex >= 0 ? line.slice(0, dashIndex).trim() : line.trim();
+	const proseTail = dashIndex >= 0 ? line.slice(dashIndex + 3).trim() || undefined : undefined;
+	// The line is a labeled record only when its first pipe segment carries a key.
+	if (!LABELED_FIELD.test(headPart.split("|")[0] ?? "")) return undefined;
+	const fields: string[] = [];
+	for (const segment of headPart.split("|")) {
+		const part = segment.trim();
+		if (!part) continue;
+		const segmentMatch = LABELED_FIELD.exec(part);
+		if (segmentMatch && drop.has((segmentMatch[1] ?? "").trim().toLowerCase())) continue;
+		fields.push(part);
+	}
+	const field = fields.length > 0 ? fields.join(" · ") : undefined;
+	return { ...(field !== undefined ? { field } : {}), ...(proseTail !== undefined ? { proseTail } : {}) };
+}
+
+/** One shared collapse rule for EVERY team preview (ADR 0012 §2): notification
+ *  preview, `get_subagent_result` body, `tasks_output` result, partial results,
+ *  mail bodies. Strips markdown markers, drops empty lines, compacts leading
+ *  `Key: value` labeled lines with ` · `, appends the first prose line after
+ *  `— `, and bounds the result with `… +N lines`. Malformed input falls back
+ *  to cleaned verbatim lines. */
+export function normalizePreview(raw: unknown, options: NormalizePreviewOptions = {}): string {
+	if (typeof raw !== "string") return "";
+	const drop = new Set((options.dropFields ?? []).map((field) => field.toLowerCase()));
+	const pathWidth = options.pathWidth ?? PREVIEW_PATH_WIDTH;
+	const contentLines = raw
+		.split(/\r\n|\r|\n/)
+		.map((line) =>
+			stripAnsi(line)
+				.replace(/\p{Cc}/gu, " ")
+				.trim(),
+		)
+		// Drop empty and heading-only lines (ADR 0012 §2): section titles are
+		// structure, not content, and must not surface as preview prose.
+		.filter((line) => line.length > 0 && !/^\s{0,3}#{1,6}(\s|$)/.test(line))
+		.map((line) => stripInlineMarkdown(line).trim())
+		.filter((line) => line.length > 0)
+		.map((line) => clipPreviewPaths(line, pathWidth));
+	if (contentLines.length === 0) return "";
+	const fields: string[] = [];
+	let prose: string | undefined;
+	let consumed = 0;
+	while (consumed < contentLines.length) {
+		const parsed = parseLabeledLine(contentLines[consumed] ?? "", drop);
+		if (!parsed) break;
+		if (parsed.field) fields.push(parsed.field);
+		if (parsed.proseTail) {
+			prose = parsed.proseTail;
+			consumed++;
+			break;
+		}
+		consumed++;
+	}
+	if (prose === undefined && consumed < contentLines.length) {
+		prose = contentLines[consumed];
+		consumed++;
+	}
+	const head = fields.join(" · ");
+	const body = prose === undefined ? head : head ? `${head} — ${prose}` : prose;
+	const omitted = contentLines.length - consumed;
+	return omitted > 0 ? `${body} … +${omitted} lines` : body;
 }
 
 export { boxedToolWidthKey, getTextOutput, resolveRelativePath, shortenPath };

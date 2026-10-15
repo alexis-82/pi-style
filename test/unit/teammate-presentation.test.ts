@@ -9,6 +9,7 @@ import type { BoxedToolContext, BoxedToolResult } from "../../extension-src/pi-s
 import {
 	rebuildTeammateRuns,
 	resetTeammateRuns,
+	settleTeammateRun,
 	teammateColorForRun,
 	teammateForRun,
 } from "../../extension-src/pi-style/features/tools/boxed/team-run-labels.js";
@@ -52,14 +53,14 @@ afterEach(() => {
 	resetBatchRegistry();
 	resetTeammateRuns();
 	resetTurnRegistry();
-	setToolsRenderConfig({ nerdFonts: false, collapseAfterTurn: false });
+	setToolsRenderConfig({ nerdFonts: false, collapseAfterTurn: false, mergedSummaryGlyph: "◈" });
 });
 
 describe("pi-teams tool presentation", () => {
 	it("renders one Agent inline, without guessing omitted mode/model/max turns", () => {
 		const a = call("Agent", "a", { name: "fe-fleet", description: "Find frontend entrypoints" });
 		const text = plain(a.component.render(120)).join("\n");
-		expect(text).toContain("● Spawn teammate @fe-fleet · Find frontend entrypoints");
+		expect(text).toContain("◌ Agent @fe-fleet · Find frontend entrypoints");
 		expect(text).not.toContain("background");
 		expect(text).not.toContain("max 30");
 		renderBoxedToolResult(
@@ -69,7 +70,7 @@ describe("pi-teams tool presentation", () => {
 			theme,
 			a.ctx,
 		);
-		expect(plain(a.component.render(120))[0]).toContain("Spawn background teammate");
+		expect(plain(a.component.render(120))[0]).toContain("◌ Agent @fe-fleet");
 		expectLinesFit(a.component.render(28), 28);
 	});
 
@@ -99,16 +100,16 @@ describe("pi-teams tool presentation", () => {
 			second.ctx,
 		);
 		const lines = plain(first.component.render(110));
-		expect(lines[0]).toBe("● Spawn 2 background teammates");
-		expect(lines[1]).toContain("├─ @fe-fleet · Find frontend entrypoints");
+		expect(lines[0]).toBe("◌ Agent (2) · 0/2");
+		expect(lines[1]).toContain("├─ ◌ @fe-fleet · Find frontend entrypoints");
 		expect(lines[1]).not.toContain("max 30 turns");
-		expect(lines[2]).toContain("└─ @reviewer · Review auth changes · anthropic/sonnet-4.5");
+		expect(lines[2]).toContain("└─ ◌ @reviewer · Review auth changes · sonnet-4.5");
 		expect(lines[2]).not.toContain("thinking max");
 		expect(lines.join(" ")).not.toContain("run-2");
 		expect(lines.join(" ")).not.toContain("explore");
 		// A call re-render after settlement must retain the admitted model.
 		renderBoxedToolCall("Agent", args2, theme, second.ctx);
-		expect(plain(first.component.render(110))[2]).toContain("anthropic/sonnet-4.5");
+		expect(plain(first.component.render(110))[2]).toContain("sonnet-4.5");
 	});
 
 	it("uses only validated optional identity color and effective metadata", () => {
@@ -139,11 +140,11 @@ describe("pi-teams tool presentation", () => {
 	it("separates foreground, non-Agent, and later-message batches", () => {
 		const first = call("Agent", "first", { name: "one", run_in_background: true });
 		const foreground = call("Agent", "second", { name: "two", run_in_background: false });
-		expect(plain(first.component.render(80))[0]).toContain("Spawn background teammate");
-		expect(plain(foreground.component.render(80))[0]).toContain("Spawn foreground teammate");
+		expect(plain(first.component.render(80))[0]).toContain("◌ Agent @one");
+		expect(plain(foreground.component.render(80))[0]).toContain("◌ Agent @two");
 		renderBoxedToolCall("send_message", { target: "one", message: "hi" }, theme, context("mail", {}));
 		const next = call("Agent", "third", { name: "three", run_in_background: false });
-		expect(plain(next.component.render(80))[0]).toContain("Spawn foreground teammate");
+		expect(plain(next.component.render(80))[0]).toContain("◌ Agent @three");
 	});
 
 	it("keeps failures and foreground output accessible", () => {
@@ -382,7 +383,7 @@ describe("pi-teams tool presentation", () => {
 	it("shows the admitted teammate name while waiting, keeping run IDs separate across assignments", () => {
 		const first = call("Agent", "spawn-one", { name: "workflow", run_in_background: true });
 		const waiting = call("get_subagent_result", "wait-one", { agent_id: "run-one", wait: true });
-		expect(plain(waiting.component.render(100))[0]).toBe("● Get result run-one · wait");
+		expect(plain(waiting.component.render(100))[0]).toBe("◌ Get result run-one · wait");
 		renderBoxedToolResult(
 			"Agent",
 			result("{agent:run-one started as @workflow}", {
@@ -394,7 +395,7 @@ describe("pi-teams tool presentation", () => {
 			theme,
 			first.ctx,
 		);
-		expect(plain(waiting.component.render(100))[0]).toBe("● Get result @workflow · wait");
+		expect(plain(waiting.component.render(100))[0]).toBe("◌ Get result @workflow · wait");
 		const second = call("Agent", "spawn-two", { name: "workflow", run_in_background: true });
 		renderBoxedToolResult(
 			"Agent",
@@ -409,14 +410,14 @@ describe("pi-teams tool presentation", () => {
 		);
 		expect(
 			plain(call("get_subagent_result", "wait-two", { agent_id: "run-two", wait: true }).component.render(100))[0],
-		).toBe("● Get result @workflow · wait");
+		).toBe("◌ Get result @workflow · wait");
 		expect(teammateForRun("run-one")).toBe("workflow");
 		expect(teammateForRun("run-two")).toBe("workflow");
 		expect(
 			plain(
 				call("get_subagent_result", "wait-unknown", { agent_id: "run-unknown", wait: true }).component.render(100),
 			)[0],
-		).toBe("● Get result run-unknown · wait");
+		).toBe("◌ Get result run-unknown · wait");
 	});
 
 	it("colors only @references in result receipts using the admitted color or theme accent", () => {
@@ -449,9 +450,10 @@ describe("pi-teams tool presentation", () => {
 				palette,
 				waiting.ctx,
 			).render(100)[0] ?? "";
-		expect(receipt).toContain(`${identity}`);
-		expect(stripAnsi(receipt)).toBe("└─ @arch-review · completed · ## Status: partial");
-		expect(receipt).not.toContain("\x1b[38;2;0;187;221m · completed");
+		// Collapsed: the record header parses as labeled fields and `Type:`/
+		// `Teammate:` noise drops, so `@name` never prints twice (ADR 0012 §8).
+		expect(stripAnsi(receipt)).toBe("└ Status: completed");
+		expect(receipt).not.toContain(identity);
 		const expanded = renderBoxedToolResult(
 			"get_subagent_result",
 			result("Type: review | Status: completed\nTeammate: @arch-review\n\nDone @arbitrary"),
@@ -470,7 +472,7 @@ describe("pi-teams tool presentation", () => {
 				palette,
 				waiting.ctx,
 			).render(100)[0] ?? "";
-		expect(mismatched).toContain("\x1b[38;2;68;102;170m@other-review\x1b[39m");
+		expect(stripAnsi(mismatched)).toBe("└ Status: completed — Done");
 		expect(teammateColorForRun("run-review")).toBeUndefined();
 
 		const unknown = call("get_subagent_result", "unknown", { agent_id: "run-unknown", wait: true }, palette);
@@ -483,8 +485,8 @@ describe("pi-teams tool presentation", () => {
 				palette,
 				unknown.ctx,
 			).render(100)[0] ?? "";
-		expect(fallback).toContain("\x1b[38;2;68;102;170m@docs-review\x1b[39m");
-		expect(unknown.component.render(100)[0]).toContain("\x1b[38;2;68;102;170m@docs-review\x1b[39m");
+		expect(stripAnsi(fallback)).toBe("└ Status: completed — Done");
+		expect(unknown.component.render(100)[0]).not.toContain("\x1b[38;2;0;187;221m");
 	});
 
 	it("learns a teammate from a completed result when the spawn receipt is unavailable", () => {
@@ -527,7 +529,7 @@ describe("pi-teams tool presentation", () => {
 		expect(teammateColorForRun("run-two")).toBeUndefined();
 		expect(
 			plain(call("get_subagent_result", "restored", { agent_id: "run-one", wait: true }).component.render(100))[0],
-		).toBe("● Get result @workflow · wait");
+		).toBe("◌ Get result @workflow · wait");
 		// Older sessions may have a formatted result but no Agent admission metadata.
 		rebuildTeammateRuns([
 			{
@@ -553,10 +555,10 @@ describe("pi-teams tool presentation", () => {
 		expect(teammateForRun("run-old")).toBe("reviewer");
 	});
 
-	it("sends messages with one confirmation and preserves errors", () => {
+	it("sends minimal message cards — quiet success, loud failure", () => {
 		const palette = createFakeTheme({ colors: { accent: "#4466aa" } });
 		const mail = call("send_message", "mail", { target: "reviewer", message: "Check the diff" }, palette);
-		expect(plain(mail.component.render(90))[0]).toContain("✉ Message → @reviewer · “Check the diff”");
+		expect(plain(mail.component.render(90))[0]).toBe("● Message to @reviewer (Ctrl+O to expand)");
 		expect(mail.component.render(90)[0]).toContain("\x1b[38;2;68;102;170m@reviewer\x1b[39m");
 		renderBoxedToolResult(
 			"send_message",
@@ -565,28 +567,37 @@ describe("pi-teams tool presentation", () => {
 			theme,
 			mail.ctx,
 		);
-		expect(plain(mail.component.render(90))[0]).toContain(" · queued");
+		// The settled glyph itself is the receipt: no `queued` verb is appended.
+		expect(plain(mail.component.render(90))[0]).toBe("● Message to @reviewer (Ctrl+O to expand)");
 		const steer = call("steer_subagent", "steer", { agent_id: "run-1", message: "Focus on API" }, palette);
+		expect(plain(steer.component.render(90))[0]).toBe("● Steer to @run-1 (Ctrl+O to expand)");
 		expect(steer.component.render(90)[0]).toContain("\x1b[38;2;68;102;170m@run-1\x1b[39m");
-		const error = renderBoxedToolResult(
+		renderBoxedToolResult(
 			"steer_subagent",
 			result("Agent cannot be steered"),
 			{ expanded: false, isPartial: false },
 			theme,
 			steer.ctx,
 		);
-		expect(plain(error.render(90))[0]).toContain("cannot be steered");
-		expect(plain(steer.component.render(90))[0]).not.toContain("accepted");
+		expect(plain(steer.component.render(90))[0]).toBe("✗ Steer to @run-1 · Agent cannot be steered");
 		const invalidTarget = call("send_message", "bad-target", { target: "bad\rFORGED", message: "hi" });
-		const invalidResult = renderBoxedToolResult(
+		renderBoxedToolResult(
 			"send_message",
 			result("Unknown teammate: bad\rFORGED"),
 			{ expanded: true, isPartial: false },
 			theme,
 			{ ...invalidTarget.ctx, expanded: true },
 		);
-		expect(invalidResult.render(80).join("\n")).not.toContain("\r");
-		expect(invalidResult.render(80).join("\n")).toContain("bad FORGED");
+		const failed = renderBoxedToolCall("send_message", invalidTarget.ctx.args, theme, {
+			...invalidTarget.ctx,
+			expanded: true,
+		})
+			.render(80)
+			.join("\n");
+		expect(failed).not.toContain("\r");
+		expect(failed).toContain("bad FORGED");
+		// Expanded: the identical head minus the hint, then the │-railed body.
+		expect(failed).toContain("  │ hi");
 	});
 
 	it("keeps a team receipt visible while a later tools-only member owns the collapse disclosure", () => {
@@ -793,7 +804,7 @@ describe("pi-teams tool presentation", () => {
 			theme,
 			context("models", { expanded: true }),
 		);
-		expect(models.render(80)).toHaveLength(45);
+		expect(models.render(80)).toHaveLength(46);
 		expect(models.render(80).join("\n")).toContain("provider/model-44");
 		expect(models.render(80).join("\n")).not.toContain("Ctrl+O to expand");
 		const escapedModels = renderBoxedToolResult(
@@ -836,7 +847,8 @@ describe("pi-teams tool presentation", () => {
 			context("update", {}),
 		);
 		expect(receipt.render(80)[0]).toContain("@arch-review");
-		expect(plain(receipt.render(80)).join(" ")).toContain("✓ tests");
+		// ADR 0013 §1/§2: the completed delta compresses the outcome to counts.
+		expect(plain(receipt.render(80))).toEqual(["└ T1 accepted · @arch-review · 1 check: 1 passed"]);
 		const detail = renderBoxedToolResult(
 			"tasks_get",
 			result(JSON.stringify(task)),
@@ -948,7 +960,7 @@ describe("public pi-teams tool renderer resolver (Pi 1.0.4)", () => {
 		const args = { name: "fe-fleet", run_in_background: true, description: "Find frontend" };
 		const leader = adapters.renderCall(args, theme, context("public-1", args));
 		const second = adapters.renderCall(args, theme, context("public-2", args));
-		expect(plain(leader.render(100))[0]).toBe("● Spawn 2 background teammates");
+		expect(plain(leader.render(100))[0]).toBe("◌ Agent (2) · 0/2");
 		expect(second.render(100)).toEqual([]);
 
 		closeActiveBatch();
@@ -1010,8 +1022,8 @@ describe("pi-teams message renderers", () => {
 			{ expanded: false } as Parameters<MessageRenderer>[1],
 			palette,
 		);
-		expect(plain(notice?.render(100) ?? [])).toEqual(["● @fe-fleet finished", "  └─ Found files", "  ↗ result.md"]);
-		expect(notice?.render(100)[0]).toContain("\x1b[38;2;68;102;170m@fe-fleet\x1b[39m finished");
+		expect(plain(notice?.render(100) ?? [])).toEqual(["● @fe-fleet", "  └ Found files", "  └ ↗ result.md"]);
+		expect(notice?.render(100)[0]).toContain("\x1b[38;2;68;102;170m@fe-fleet\x1b[39m");
 		const linked = notice?.render(80).at(-1) ?? "";
 		expect(linked).toContain("\x1b]8;;file:///tmp/result.md\x1b\\result.md\x1b]8;;\x1b\\");
 		const longPreview = renderers.get("teammate-notification")?.(
@@ -1098,7 +1110,7 @@ describe("pi-teams message renderers", () => {
 			{ expanded: false } as Parameters<MessageRenderer>[1],
 			palette,
 		);
-		expect(plain(grouped?.render(100) ?? []).join("\n")).toContain("@bad failed");
+		expect(plain(grouped?.render(100) ?? []).join("\n")).toContain("✗ @bad · broken");
 		const longCompleted = Array.from({ length: 200 }, () => "x").join("\n");
 		const budgetedGroup = renderers.get("teammate-notification")?.(
 			{
@@ -1237,7 +1249,7 @@ describe("pi-teams message renderers", () => {
 			{ expanded: false } as Parameters<MessageRenderer>[1],
 			palette,
 		);
-		expect(plain(message?.render(80) ?? [])).toEqual(["✉ @fe-fleet → lead · Found routes"]);
+		expect(plain(message?.render(80) ?? [])).toEqual(["● Message from @fe-fleet (Ctrl+O to expand)"]);
 		const multiline = renderers.get("teammate-message")?.(
 			{
 				content: "Message from @worker:\n\nfirst line\nsecond\r\u0007line",
@@ -1251,7 +1263,7 @@ describe("pi-teams message renderers", () => {
 		expect(expandedMessage.join("\n")).toContain("second  line");
 		expect(expandedMessage.join("\n").includes("\r")).toBe(false);
 		expect(expandedMessage.join("\n").includes("\u0007")).toBe(false);
-		expect(message?.render(80)[0]).toContain("\x1b[38;2;0;187;221m@fe-fleet\x1b[39m → lead");
+		expect(message?.render(80)[0]).toContain("\x1b[38;2;0;187;221m@fe-fleet\x1b[39m");
 		const noColor = renderers.get("teammate-message")?.(
 			{
 				content: "Message from @docs-review:\n\nUpdate",
@@ -1260,14 +1272,300 @@ describe("pi-teams message renderers", () => {
 			{ expanded: false } as Parameters<MessageRenderer>[1],
 			palette,
 		);
-		expect(noColor?.render(100)[0]).toContain("\x1b[38;2;68;102;170m@docs-review\x1b[39m → lead");
+		expect(noColor?.render(100)[0]).toContain("\x1b[38;2;68;102;170m@docs-review\x1b[39m");
 		setToolsRenderConfig({ nerdFonts: true });
-		expect(plain(message?.render(80) ?? [])[0]).toContain("\uf086 @fe-fleet → lead");
+		expect(plain(message?.render(80) ?? [])[0]).toContain("\uf111 Message from @fe-fleet");
 		const malformed = renderers.get("teammate-notification")?.(
 			{ content: "Legacy notification", details: {} } as Parameters<MessageRenderer>[0],
 			{ expanded: false } as Parameters<MessageRenderer>[1],
 			theme,
 		);
 		expect(plain(malformed?.render(80) ?? []).map((line) => line.trimEnd())).toEqual(["Legacy notification"]);
+	});
+});
+
+describe("ADR 0012 team event transcript", () => {
+	it("flips a live background spawn row only at settlement, and renders ● from admission after resetTeammateRuns", () => {
+		const spawn = call("Agent", "flip-1", { name: "worker", run_in_background: true, description: "Long job" });
+		expect(plain(spawn.component.render(100))[0]).toBe("◌ Agent @worker · Long job");
+		renderBoxedToolResult(
+			"Agent",
+			result("{agent:flip-run started}", {
+				agentId: "flip-run",
+				teammateName: "worker",
+				background: true,
+				model: "zhipu/glm-5.3-flash",
+			}),
+			{ expanded: false, isPartial: false },
+			theme,
+			spawn.ctx,
+		);
+		// Admission alone never settles the glyph (fill = progress).
+		expect(plain(spawn.component.render(100))[0]).toBe("◌ Agent @worker · Long job · glm-5.3-flash");
+		settleTeammateRun("flip-run", { outcome: "completed", durationMs: 123_000, totalTokens: 146_500 });
+		expect(plain(spawn.component.render(100))[0]).toBe("● Agent @worker · Long job · glm-5.3-flash · 2m 03s · ↓146.5k");
+		settleTeammateRun("flip-run", { outcome: "failed" });
+		expect(stripAnsi(spawn.component.render(100)[0] ?? "")).toContain("✗ Agent @worker");
+		// Without live state (resume/replay) the row renders settled from admission.
+		resetTeammateRuns();
+		expect(plain(spawn.component.render(100))[0]).toBe("● Agent @worker · Long job · glm-5.3-flash");
+	});
+
+	it("settles a foreground spawn row at its own tool result", () => {
+		const spawn = call("Agent", "fg-flip", { name: "solo", run_in_background: false, description: "Quick task" });
+		renderBoxedToolResult(
+			"Agent",
+			result("Answer", { agentId: "fg-run", teammateName: "solo" }),
+			{ expanded: false, isPartial: false },
+			theme,
+			spawn.ctx,
+		);
+		expect(plain(spawn.component.render(100))[0]).toBe("● Agent @solo · Quick task");
+	});
+
+	it("renders the list_models card with lifted header counts, deduped dim rows, and the full 1-match ref", () => {
+		const many = renderBoxedToolResult(
+			"list_models",
+			result(
+				[
+					"zhipu/glm-5.3-flash — GLM-5.3-Flash",
+					"anthropic/claude-sonnet-4-5 — Claude Sonnet 4.5",
+					"openai/gpt-5 — GPT Five",
+					"2 of 10 matching models shown",
+				].join("\n"),
+			),
+			{ expanded: false, isPartial: false },
+			theme,
+			context("models-many", { query: "flash" }),
+		);
+		const lines = plain(many.render(100));
+		expect(lines[0]).toBe("● Models · flash · 2/10");
+		expect(lines[1]).toBe("├─ glm-5.3-flash");
+		expect(lines[2]).toBe("├─ claude-sonnet-4-5");
+		expect(lines[3]).toBe("└─ gpt-5 — GPT Five");
+		const expanded = renderBoxedToolResult(
+			"list_models",
+			result("zhipu/glm-5.3-flash — GLM-5.3-Flash\n1 of 7 matching models shown"),
+			{ expanded: false, isPartial: false },
+			theme,
+			context("models-one", { query: "glm" }),
+		);
+		expect(plain(expanded.render(100))).toEqual(["● Models · glm · 1/7", "└─ zhipu/glm-5.3-flash"]);
+		const expandedMany = renderBoxedToolResult(
+			"list_models",
+			result("zhipu/glm-5.3-flash — GLM-5.3-Flash\nanthropic/claude-sonnet-4-5 — Claude Sonnet 4.5"),
+			{ expanded: true, isPartial: false },
+			theme,
+			context("models-expanded", {}),
+		);
+		expect(plain(expandedMany.render(100))).toEqual([
+			"● Models",
+			"├─ zhipu/glm-5.3-flash",
+			"└─ anthropic/claude-sonnet-4-5",
+		]);
+		// Unparseable results keep the verbatim fail-closed fallback.
+		const fallback = renderBoxedToolResult(
+			"list_models",
+			result('No available model matches "missing".'),
+			{ expanded: false, isPartial: false },
+			theme,
+			context("models-fallback", {}),
+		);
+		expect(plain(fallback.render(100))).toEqual(['No available model matches "missing".']);
+	});
+
+	it("collapses get_subagent_result records to labeled fields without repeating @name", () => {
+		const waiting = call("get_subagent_result", "record", { agent_id: "run-record", wait: true });
+		const receipt = renderBoxedToolResult(
+			"get_subagent_result",
+			result(
+				"Type: review | Status: partial\nTeammate: @worker\n\n### Findings\nVerdict: undetermined — No actionable bugs found.\nSecond line",
+			),
+			{ expanded: false, isPartial: false },
+			theme,
+			waiting.ctx,
+		);
+		expect(plain(receipt.render(120))[0]).toBe(
+			"└ Status: partial · Verdict: undetermined — No actionable bugs found. … +1 lines",
+		);
+		// The waiting call head settles to ● once its own result exists.
+		expect(plain(waiting.component.render(100))[0]).toBe("● Get result @worker · wait");
+	});
+
+	it("resolves ASCII team glyphs from the mergedSummaryGlyph ascii marker", () => {
+		setToolsRenderConfig({ mergedSummaryGlyph: ">" });
+		const spawn = call("Agent", "ascii-spawn", { name: "worker", run_in_background: true });
+		expect(plain(spawn.component.render(100))[0]).toBe("~ Agent @worker");
+		const mail = call("send_message", "ascii-mail", { target: "worker", message: "hi" });
+		expect(plain(mail.component.render(100))[0]).toBe("* Message to @worker (Ctrl+O to expand)");
+	});
+
+	it("renders notification duration/tokens only from producer details and settles the remembered run", () => {
+		const palette = createFakeTheme({ colors: { accent: "#4466aa" } });
+		const renderers = new Map<string, MessageRenderer>();
+		registerTeammateMessageRenderers({
+			registerMessageRenderer: (type: string, renderer: MessageRenderer) => {
+				renderers.set(type, renderer);
+			},
+		} as unknown as ExtensionAPI);
+		setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+		const notice = renderers.get("teammate-notification")?.(
+			{
+				content: "Teammate @worker finished\n\nAll checks pass",
+				details: {
+					teammateName: "worker",
+					outcome: "completed",
+					agentId: "notify-run",
+					durationMs: 123_000,
+					totalTokens: 146_500,
+				},
+			} as Parameters<MessageRenderer>[0],
+			{ expanded: false } as Parameters<MessageRenderer>[1],
+			palette,
+		);
+		expect(plain(notice?.render(100) ?? [])).toEqual(["● @worker · 2m 03s · ↓146.5k tokens", "  └ All checks pass"]);
+		// Rule 5: the notification renderer settles the remembered run in-process.
+		closeActiveBatch();
+		const spawn = call("Agent", "notify-spawn", { name: "worker", run_in_background: true });
+		renderBoxedToolResult(
+			"Agent",
+			result("{agent:notify-run started}", { agentId: "notify-run", teammateName: "worker", background: true }),
+			{ expanded: false, isPartial: false },
+			theme,
+			spawn.ctx,
+		);
+		expect(plain(spawn.component.render(100))[0]).toBe("● Agent @worker · 2m 03s · ↓146.5k");
+	});
+});
+
+describe("ADR 0013 task delta cards", () => {
+	const baseTask = { code: "T5", title: "Retire reminders", status: "pending", owner: "worker" };
+	const render = (name: string, payload: unknown, id: string, expanded = false) =>
+		renderBoxedToolResult(
+			name,
+			result(JSON.stringify(payload)),
+			{ expanded, isPartial: false },
+			theme,
+			context(id, {}),
+		);
+
+	it("renders the delta line for every mapped status", () => {
+		expect(plain(render("tasks_create", baseTask, "d-create").render(100))).toEqual(["└ T5 created · pending"]);
+		expect(plain(render("tasks_update", { ...baseTask, status: "in_progress" }, "d-claim").render(100))).toEqual([
+			"└ T5 claimed · @worker",
+		]);
+		expect(plain(render("tasks_update", { ...baseTask, status: "in_review" }, "d-review").render(100))).toEqual([
+			"└ T5 submitted for review · @worker",
+		]);
+		expect(plain(render("tasks_update", { ...baseTask, status: "pending" }, "d-release").render(100))).toEqual([
+			"└ T5 claim released",
+		]);
+		expect(plain(render("tasks_cancel", { ...baseTask, status: "cancelled" }, "d-cancel").render(100))).toEqual([
+			"└ T5 cancelled",
+		]);
+	});
+
+	it("compresses completed outcomes to counts and breaks failed checks out loud", () => {
+		const accepted = {
+			...baseTask,
+			status: "completed",
+			outcome: {
+				verification: [
+					{ check: "lint", outcome: "passed" },
+					{ check: "tests pass", outcome: "failed", evidence: "3 failures" },
+				],
+			},
+		};
+		const rows = render("tasks_update", accepted, "d-fail").render(100);
+		expect(plain(rows)).toEqual(["└ T5 accepted · @worker · 2 checks: 1 passed · 1 failed", "✗ tests pass"]);
+		// The failed-check breakout is loud (error tint), never a dim count.
+		expect(rows[1]).toContain("\u001b[");
+	});
+
+	it("keeps the identity accent on delta actors", () => {
+		const palette = createFakeTheme({ colors: { accent: "#4466aa" } });
+		const row = renderBoxedToolResult(
+			"tasks_update",
+			result(JSON.stringify({ ...baseTask, status: "in_progress" })),
+			{ expanded: false, isPartial: false },
+			palette,
+			context("d-actor", {}),
+		);
+		expect(row.render(100)[0]).toContain("\u001b[38;2;68;102;170m@worker\u001b[39m");
+	});
+
+	it("expands the acceptance card with railed summary, clipped artifact rows and verification", () => {
+		const accepted = {
+			...baseTask,
+			status: "completed",
+			outcome: {
+				summary: "Main accepts bounded retirement\nContinuation line",
+				artifacts: [
+					`/tmp/work/very/long/${"deep/".repeat(6)}delta-reminder-retirement-build-20261015-052517.log`,
+					"/tmp/work/delta-suite.log",
+				],
+				verification: [
+					{ check: "unit tests", outcome: "passed", evidence: "42 passed\nmore detail" },
+					{ check: "typecheck", outcome: "failed", evidence: "src/a.ts:1 error" },
+				],
+				remainingIssues: ["One follow-up remains\nsplit line"],
+			},
+		};
+		const rows = plain(render("tasks_update", accepted, "d-expanded", true).render(120));
+		expect(rows[0]).toBe("└ T5 accepted · @worker · 2 checks: 1 passed · 1 failed · 1 issue remaining · 2 artifacts");
+		expect(rows[1]).toBe("  │ Summary: Main accepts bounded retirement");
+		expect(rows[2]).toBe("  │ Continuation line");
+		expect(rows[3]).toContain("├─ ↗ ");
+		expect(rows[3]).toContain("...");
+		expect(rows[3]).not.toContain("/tmp/work/very/long/");
+		expect(rows[4]).toBe("  └─ ↗ /tmp/work/delta-suite.log");
+		expect(rows[5]).toBe("  ✓ unit tests — 42 passed");
+		expect(rows[6]).toBe("  ✗ typecheck — src/a.ts:1 error");
+		expect(rows[7]).toBe("  │ Remaining: One follow-up remains");
+		expect(rows[8]).toBe("  │ split line");
+		// Artifacts with real absolute paths hyperlink when the capability exists.
+		setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+		const linked = render("tasks_update", accepted, "d-linked", true).render(120);
+		expect(linked.some((line) => line.includes("\u001b]8;;file://"))).toBe(true);
+	});
+
+	it("renders the tasks_execute delta without the disclaimer row", () => {
+		const execution = {
+			task: { code: "T5", status: "in_progress", attempts: [{ teammateName: "worker" }] },
+			runId: "exec-run-9",
+		};
+		const collapsed = render("tasks_execute", execution, "d-exec").render(120);
+		expect(plain(collapsed)).toEqual(["└ T5 · in_progress · attempt → @worker"]);
+		expect(collapsed.join("\n")).not.toContain("does not imply");
+		const expanded = plain(render("tasks_execute", execution, "d-exec-x", true).render(120));
+		expect(expanded).toContain("  run exec-run-9");
+	});
+
+	it("renders both tasks_stop deltas", () => {
+		expect(plain(render("tasks_stop", { stopped: true, task: { code: "T5" } }, "d-stop").render(100))).toEqual([
+			"└ T5 attempt stop requested",
+		]);
+		expect(plain(render("tasks_stop", { stopped: false }, "d-stop-idle").render(100))).toEqual(["no running attempt"]);
+	});
+
+	it("runs tasks_output bodies through normalizePreview collapsed and keeps them verbatim expanded", () => {
+		const payload = {
+			taskId: "id-1",
+			attempt: { status: "completed", teammateName: "reviewer" },
+			result: "## Findings\n\n**All** checks `pass`\nStatus: duplicated",
+		};
+		expect(plain(render("tasks_output", payload, "d-out").render(100))).toEqual([
+			"└─ completed · @reviewer",
+			"  └ All checks pass … +1 lines",
+		]);
+		const expanded = plain(render("tasks_output", payload, "d-out-x", true).render(100));
+		expect(expanded).toContain("  ## Findings");
+		expect(expanded).toContain("  **All** checks `pass`");
+	});
+
+	it("falls back to the existing summary line for unmapped statuses (fail-closed)", () => {
+		expect(plain(render("tasks_update", { ...baseTask, status: "teleported" }, "d-weird").render(100))).toEqual([
+			"└─ T5 · Retire reminders · teleported · @worker",
+		]);
 	});
 });

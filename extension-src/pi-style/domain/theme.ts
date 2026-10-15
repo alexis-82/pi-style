@@ -111,6 +111,10 @@ const GLYPHS = {
 		powerlineThinRight: "\uE0B3",
 		batchOpen: "\u{F111}",
 		bashPrompt: "\u{F12A}",
+		eventRunning: "\uF10C",
+		eventSettled: "\uF111",
+		eventFailed: "✗",
+		eventStopped: "○",
 	},
 	unicode: {
 		pi: "π",
@@ -124,6 +128,10 @@ const GLYPHS = {
 		powerlineThinRight: "│",
 		batchOpen: "●",
 		bashPrompt: "$",
+		eventRunning: "◌",
+		eventSettled: "●",
+		eventFailed: "✗",
+		eventStopped: "○",
 	},
 	ascii: {
 		pi: "pi",
@@ -137,6 +145,10 @@ const GLYPHS = {
 		powerlineThinRight: "|",
 		batchOpen: "v",
 		bashPrompt: "$",
+		eventRunning: "~",
+		eventSettled: "*",
+		eventFailed: "x",
+		eventStopped: "o",
 	},
 } as const;
 
