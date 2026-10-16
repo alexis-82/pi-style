@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.10] - 2026-10-16
+
+### Bug Fixes
+
+- Standardize built-in glyphs on portable Unicode
+
 ## [0.5.9] - 2026-10-16
 
 ### Features
