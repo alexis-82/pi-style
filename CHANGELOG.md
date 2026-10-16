@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.9] - 2026-10-16
+
+### Features
+
+- *(ui)* Adopt team event glyph system and task delta cards (ADR 0012, 0013)
+
 ## [0.5.8] - 2026-10-13
 
 ### Bug Fixes
