@@ -71,6 +71,7 @@ export interface PiStyleConfig {
 		mergeChunkedReads?: boolean;
 	};
 	theme?: {
+		/** @deprecated Accepted for compatibility; built-in glyphs use Unicode/ASCII. */
 		nerdFonts?: string;
 		terminalBackgroundSync?: string;
 		/** Pi theme name auto-applied at TUI session start ("off" disables; default "titanium"). */
@@ -145,6 +146,7 @@ export interface NormalizedPiStyleConfig {
 		mergeChunkedReads: boolean;
 	};
 	readonly theme: {
+		/** @deprecated Accepted for compatibility; ignored by rendering. */
 		nerdFonts: NerdFontsMode;
 		terminalBackgroundSync: ToggleMode;
 		/** Pi theme name auto-applied at TUI session start; "off" disables the surface. */

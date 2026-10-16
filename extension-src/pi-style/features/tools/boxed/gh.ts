@@ -18,7 +18,7 @@ import { formatElapsedMs } from "../../../shared/elapsed.js";
 import { safeTruncateToWidth } from "../../../shared/render-budget.js";
 import { parseSimpleBashCommand } from "./command-shape.js";
 import { pluralForm, TREE_INDENT } from "./output-tree.js";
-import { getStateElapsedMs, getToolsRenderConfig } from "./session-config.js";
+import { getStateElapsedMs } from "./session-config.js";
 import type { BoxedToolContext } from "./shared.js";
 
 // ── Classification ──────────────────────────────────────────────────────────
@@ -691,42 +691,38 @@ export function parseGhOutput(cls: GhSemanticClass, output: string): GhParsedSem
 
 // ── Rendering ───────────────────────────────────────────────────────────────
 
-/** Nerd Font GitHub mark glyph used on gh card headers in Nerd Font mode. */
-export const GH_ICON = "\u{F408}";
-
 const GH_CARD_HEAD_LIMIT = 6;
 const GH_BODY_PREVIEW_LINES = 8;
 
 function ghCardHeader(theme: BoxTheme, cls: GhSemanticClass, parsed?: GhParsedSemantic): string {
-	const icon = getToolsRenderConfig().nerdFonts ? `${GH_ICON} ` : "";
 	let prefix: string;
 	switch (cls.kind) {
 		case "pr-list":
-			prefix = `${icon}PRs`;
+			prefix = "PRs";
 			break;
 		case "pr-view":
-			prefix = `${icon}PR`;
+			prefix = "PR";
 			break;
 		case "pr-checks":
-			prefix = `${icon}PR checks`;
+			prefix = "PR checks";
 			break;
 		case "pr-create":
-			prefix = `${icon}PR created`;
+			prefix = "PR created";
 			break;
 		case "issue-list":
-			prefix = `${icon}Issues`;
+			prefix = "Issues";
 			break;
 		case "issue-view":
-			prefix = `${icon}Issue`;
+			prefix = "Issue";
 			break;
 		case "run-list":
-			prefix = `${icon}Runs`;
+			prefix = "Runs";
 			break;
 		case "run-view":
-			prefix = `${icon}Run`;
+			prefix = "Run";
 			break;
 		case "run-job":
-			prefix = `${icon}Run job`;
+			prefix = "Run job";
 			break;
 	}
 	if (parsed) {

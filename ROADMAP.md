@@ -143,8 +143,8 @@ Build the shared services required by every UI surface before implementing visib
 #### Theme and rendering foundation
 
 - Implement semantic theme resolver over the active Pi theme.
-- Implement glyph sets: Nerd, Unicode-safe, ASCII.
-- Implement conservative auto-detection plus config/env override.
+- Implement portable glyph sets: Unicode default and explicit ASCII preset.
+- Use Unicode by default and an explicit ASCII preset; accept legacy font settings without affecting rendering.
 - Add ANSI-safe width/truncation/wrapping helpers.
 - Implement `NO_COLOR` behavior.
 - Terminal-global background synchronization is unsupported/off for technical v1; explicit cell backgrounds and Pi theme APIs remain supported.
@@ -162,7 +162,7 @@ Phase 0.
 
 - Config precedence and invalid-input tests pass.
 - Ten fake start/shutdown/reload cycles leave no timers/listeners/installations.
-- Theme resolution works with dark, light, custom, missing-token, no-color, Nerd, Unicode, and ASCII cases.
+- Theme resolution works with dark, light, custom, missing-token, no-color, Unicode, and ASCII cases.
 - Render helpers prove width and ANSI containment.
 - Headless modes start no TUI/terminal resources.
 - Doctor output explains effective config and detected capabilities without secrets.
@@ -196,7 +196,7 @@ Implement the full segment-based information surface using native Pi widgets, in
 - Custom `left`, logical `right`, and `secondary` groups.
 - Explicit-empty and deduplication semantics.
 - Disabled segments and configured custom extension-status items.
-- Separator styles with Nerd/Unicode/ASCII fallback.
+- Separator styles with Unicode/ASCII glyphs.
 
 #### Responsive renderer
 
@@ -506,7 +506,7 @@ Prove the complete product under performance, terminal, lifecycle, packaging, an
 - Common Linux terminal.
 - Windows Terminal native and WSL.
 - tmux/SSH where practical.
-- Nerd, normal Unicode, and ASCII fonts.
+- Unicode default and ASCII glyph modes.
 - truecolor, 256-color approximation, and `NO_COLOR`.
 - widths 40/60/80/120/160 and short heights.
 - terminal-global background synchronization remains unsupported/off for technical v1 unless mandatory platform evidence changes this decision.
@@ -572,7 +572,7 @@ Render `git` and `gh` results semantically as **presentation adapters of the Bas
 - Parsers: `git status` (long and `--short`), `git diff --stat`, short `git log`; every parser returns `null` on hostile input.
 - Compact card rendering reusing `renderOutputTree` rows: summary counts (modified/untracked/staged/deleted/renamed/conflicted), grouped `├─/└─` file rows, `… N more` collapse.
 - Branch shown only when it affects the result (push/merge/ahead-behind); the status line owns `⎇ main`.
-- Icons gated by the existing Nerd Font glyph-mode config.
+- Plain Git/GitHub labels without font-dependent icons.
 
 #### Phase 8B — Boxed diffs and content
 
@@ -599,7 +599,7 @@ Phase 5 (bash tree classification + boxed result shell + `Edit` diff component);
 
 - All `GIT-001`–`GIT-004` and `GH-001`–`GH-002` requirements are proven.
 - Parser unit tests accept valid long/`--short`/`diff --stat`/`log`/`gh --json` output and return `null` on hostile input.
-- Render snapshots cover compact cards, boxed diff reuse, raw fallback, and nonzero-exit stderr preservation; `NO_COLOR`/ASCII and Nerd Font modes are readable.
+- Render snapshots cover compact cards, boxed diff reuse, raw fallback, and nonzero-exit stderr preservation; `NO_COLOR`, Unicode, and ASCII modes are readable.
 - Built-in Bash execution and result shapes remain unchanged (`TOOL-001`).
 - Unparseable/unsupported commands render the raw boxed Bash shell (`GIT-003`).
 - `npm run check` passes.
@@ -631,7 +631,7 @@ When a turn completes, collapse that turn's finalized tool blocks into a single 
 #### Summary rendering (boxed renderer)
 
 - Leader renders the summary line; other tool items of the turn render zero lines (batch-member pattern).
-- `➔ Read 2 files, ran 4 shell commands · 3.1s` format with `pluralForm`, wall-clock elapsed, `safeTruncateToWidth`; Nerd/Unicode/ASCII glyph variants.
+- `➔ Read 2 files, ran 4 shell commands · 3.1s` format with `pluralForm`, wall-clock elapsed, `safeTruncateToWidth`; Unicode/ASCII glyph variants.
 - Never collapsed: errors, partial/pending, interrupted turns, the running turn, `user_bash` blocks. Error blocks stay visible; optional `· N failure(s)` marker.
 - `expanded` override: full boxes when Pi's global toggle is on; summaries when off.
 

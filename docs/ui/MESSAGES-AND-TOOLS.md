@@ -185,7 +185,7 @@ The panel has **no surrounding box and never collapses** — the tree stays open
 
 - **Pending** header `➔ Read (N)`.
 - **Running** header `◌ Read (N) · k/N`; tree shows `✓`/`◌` per member.
-- **Done** header ` Read (N) · 0.08s` (open-tree glyph; `●` unicode fallback, nerd `\u{F111}`); tree keeps the first 5 members and a `└─ N more` row.
+- **Done** header ` Read (N) · 0.08s` (open-tree glyph `●`); tree keeps the first 5 members and a `└─ N more` row.
 - **Per-file color**: files read successfully render in the primary (accent) color; failed members render in the error color with the error text indented beneath, and the header becomes `✗ Read (N) · 1 failed`. Errors stay open.
 - **`read` lone call**: a single read collapses to one inline line — ` Read <path:range> · <elapsed>` (pending `➔ Read <path:range>`, failed `✗ Read <path:range>` with the error beneath). No tree row, no `(1)` count.
 
@@ -206,7 +206,7 @@ test/
 - Header: `List: <N> files · in <path>` (ls) / `Glob: <pattern> <N> files · in <path>` (find); directories keep their `/` suffix.
 - Body: clean indented rows (no `├─/└─` glyphs). `find` path entries group under their directory as a header row with nested entry rows; single-directory `ls` renders flat. The first ~6 entries show, then a `… N more files` row when truncated.
 - Batched calls use the `<glyph> Glob/List (N) · <total> files` header with one subtree per member (`├─ <path> · <n> files` → clean indented entries).
-- **File-type icons** (Nerd Font mode only): each entry is prefixed with its file icon — ` ` (folder), ` ` (TypeScript), ` ` (Markdown), … — via `theme.n` glyph mode; Unicode/ASCII modes render plain entries.
+- Entries render as plain paths without optional file-type icons.
 
 #### grep output tree
 
@@ -218,7 +218,7 @@ Grep: createConfig 3 matches · 2 files · in .
   └─ test/config.test.ts
 ```
 
-- File rows render `├─/└─ <path>` in the accent color (Nerd Font file icons in nerd mode), first-seen order; a trailing `└─ … N more files` row collapses long results (head budget ~6 files).
+- File rows render `├─/└─ <path>` in the accent color , first-seen order; a trailing `└─ … N more files` row collapses long results (head budget ~6 files).
 - **Expansion** (header click or Pi's global Ctrl+O) lifts the file-list head limit — every matching file renders, still without match content. Raw match lines stay available through Pi's native raw-result view.
 - Context lines are not parsed into the tree; the parsers keep only `file:line:` match records to compute counts and group files.
 
@@ -264,7 +264,7 @@ Rules:
 - **Nonzero exit** keeps the raw stderr; a semantic error view only when the output still parses, otherwise raw fallback.
 - **Git vs GitHub** is icon + title (`git` / `PR` / `Issue` / `Checks`), not a separate component system.
 - **Action lines** (`d diff`, `c checks`, `Enter details`, `Ctrl+O raw`) are hints only — no keybinding registration.
-- **Icons** are gated by Nerd Font mode like `List`/`Glob` file icons.
+- Git, gh, and search headers use plain labels; optional icons are not rendered.
 - **Out of scope:** plumbing (`git cat-file`, `rev-parse`, `for-each-ref`), `gh api`, extensions, and free-form JSON stay raw.
 
 ## Tool result body
@@ -419,7 +419,7 @@ Pi Teams retains ownership of execution and roster state. Pi Style uses its exis
 - diff and syntax-highlight preservation; no-color/ASCII/theme invalidation;
 - git/gh parsers (long and `--short` status, `diff --stat`, `log`, `gh --json` records) accept valid output and return `null` on hostile input;
 - git/gh render snapshots: compact card, boxed diff reuse, raw fallback, nonzero-exit stderr preservation;
-- turn summary render snapshots: Nerd/Unicode/ASCII/no-color line formats, zero-line members, leader rendering, `expanded` override, error-block preservation, diff-stats part (diff colors, omission when diff-less), registry diff extraction (`details.diff`, quick-edit output, restore parity, write/error exclusion);
+- turn summary render snapshots: Unicode/ASCII/no-color line formats, zero-line members, leader rendering, `expanded` override, error-block preservation, diff-stats part (diff colors, omission when diff-less), registry diff extraction (`details.diff`, quick-edit output, restore parity, write/error exclusion);
 - turn registry unit tests: grouping, leader selection, counts/elapsed, resume rebuild, session-boundary resets;
 - lifecycle/e2e: `turn_end` → deferred collapse, scroll-back consistency, Ctrl+O expand/restore round-trip;
 - unsupported target shapes; repeated reload and later-owner replacement; native fallback snapshots;

@@ -80,7 +80,7 @@ A preset establishes defaults; explicit nested settings override it.
 | `minimal` | Path/Git/context essentials, native-like editor, no startup overlay, low decoration. |
 | `compact` | High information density for medium terminals. |
 | `full` | Broad status data and all compatible visual surfaces. |
-| `ascii` | No Nerd Font assumptions and conservative separators. |
+| `ascii` | ASCII labels and separators for accessibility. |
 | `native` | Active Pi theme plus only low-risk status enhancements. |
 
 ## Status-line layout semantics
@@ -142,7 +142,7 @@ The boxed tool and special-block adapters are identity-certified per surface aga
 
 ## Theme configuration
 
-**Font mode** — `theme.nerdFonts`: `auto` (conservative detection), `on`, `off`. Env override: `PI_STYLE_NERD_FONTS=1|0`.
+**Legacy font settings** — `theme.nerdFonts` (`auto`/`on`/`off`) and `PI_STYLE_NERD_FONTS=1|0` remain accepted for compatibility but are ignored for rendering. Unicode is the default on every terminal; there is no Nerd mode or detection.
 
 **Background sync** — `terminalBackgroundSync`: `auto`, `on`, `off`. `auto` follows the platform policy in `ui/THEMING.md` and `COMPATIBILITY.md`; terminal-global synchronization remains unsupported/off for technical v1.
 
@@ -198,7 +198,7 @@ Ordinary mutations are session-only; persistence requires an explicit `global` o
 | Variable | Meaning |
 | --- | --- |
 | `PI_STYLE_DISABLED=1` | Disable all surfaces for emergency recovery. |
-| `PI_STYLE_NERD_FONTS=1\|0` | Force glyph mode. |
+| `PI_STYLE_NERD_FONTS=1\|0` | Legacy compatibility setting; accepted but ignored for rendering. |
 | `PI_STYLE_EDITOR=native\|compact\|boxed\|dock` | Temporary editor override. |
 | `PI_STYLE_STATUS=above\|below\|off` | Temporary status placement/state. |
 | `PI_STYLE_OSC11=1\|0` | Force terminal background sync policy. |
@@ -288,12 +288,12 @@ Mockup reproduction (style/frame are already the default; only the hint needs en
 When the input starts with `!` (Pi's native bash mode), the editor switches to a bash-mode treatment:
 
 ```text
-╭─  echo "zz" ─────────────────────────────────────────────╮
+╭─ $ echo "zz" ─────────────────────────────────────────────╮
 │  continuation / cursor                                    │
 ╰──────────────────────────────────────────────────────────╯
 ```
 
-- The prompt glyph becomes the bash icon (`` Nerd Font, `$` Unicode/ASCII fallback; configurable via `theme.glyphs.bashPrompt`).
+- The prompt glyph becomes `$` on every terminal; `theme.glyphs.bashPrompt` remains a user-controlled override.
 - The leading `!` (and `!!` for context-excluded commands) is hidden from the displayed input; the command text starts right after the icon. A cursor sitting on the hidden `!` keeps the native cursor block.
 - The whole frame (borders and glyph) takes the bash-mode color — Pi's native `bashMode` theme color, already used for the direct-execution display.
 - Clearing the input returns the editor to the normal `❯` prompt. The border uses `/color` or the theme's primary `accent` color (`#00b4ff` in `titanium`); thinking effort does not recolor it.

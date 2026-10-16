@@ -75,10 +75,10 @@ describe("theme and ANSI foundation", () => {
 	it("resolves fallback, glyph modes, and no-color", () => {
 		const config = normalizeConfig({ theme: { nerdFonts: "on", colors: { accent: "red" } } });
 		const theme = resolveTheme({ fg: () => "active" }, config, { NO_COLOR: "1" });
-		expect(theme.mode).toBe("nerd");
+		expect(theme.mode).toBe("unicode");
 		expect(theme.color("accent")).toBe("");
-		expect(theme.glyph("git")).toBe("");
-		expect(detectGlyphMode(normalizeConfig({ preset: "ascii" }), {})).toBe("ascii");
+		expect(theme.glyph("git")).toBe("⎇");
+		expect(detectGlyphMode(normalizeConfig({ preset: "ascii" }))).toBe("ascii");
 	});
 	it("keeps ANSI out of visible width and fits truncation/wrapping", () => {
 		const value = "\x1b[31mhello\x1b[0m";

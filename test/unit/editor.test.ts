@@ -165,8 +165,8 @@ describe("styled editor renderer", () => {
 		const lines = editor.render(80);
 		const plain = (line: string) => line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
 		const body = plain(lines.join("\n"));
-		// The `!` is replaced by the Nerd-Font bash icon; the command text follows.
-		expect(body).toContain(" echo hi");
+		// The `!` is replaced by a portable shell prompt, even with the legacy font setting.
+		expect(body).toContain("$ echo hi");
 		expect(body).not.toContain("!echo hi");
 		// The frame is still the rounded dock box.
 		expect(plain(lines[0] ?? "")).toBe(`╭${"─".repeat(78)}╮`);

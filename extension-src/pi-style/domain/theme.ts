@@ -1,6 +1,6 @@
 import type { NormalizedPiStyleConfig } from "./config-types.js";
 
-export type GlyphMode = "nerd" | "unicode" | "ascii";
+export type GlyphMode = "unicode" | "ascii";
 export type SemanticToken =
 	| "surface"
 	| "surfaceRaised"
@@ -99,23 +99,6 @@ const SEMANTIC_COLORS: Record<SemanticToken, string> = {
 };
 
 const GLYPHS = {
-	nerd: {
-		pi: "π",
-		git: "\uE0A0",
-		path: "\uF07B",
-		context: "\u{F035B}",
-		separator: "\uE0B0",
-		powerlineLeft: "\uE0B0",
-		powerlineRight: "\uE0B2",
-		powerlineThinLeft: "\uE0B1",
-		powerlineThinRight: "\uE0B3",
-		batchOpen: "\u{F111}",
-		bashPrompt: "\u{F12A}",
-		eventRunning: "\uF10C",
-		eventSettled: "\uF111",
-		eventFailed: "✗",
-		eventStopped: "○",
-	},
 	unicode: {
 		pi: "π",
 		git: "⎇",
@@ -212,42 +195,9 @@ function colorPrefixFor(
 	return "";
 }
 
-function envKeyFor(env: Record<string, string | undefined>): string {
-	return `${env.PI_STYLE_NERD_FONTS ?? ""}\u0000${env.GHOSTTY_RESOURCES_DIR ? "1" : "0"}\u0000${env.TERM_PROGRAM ?? ""}`;
-}
-
-const glyphModeCache = new WeakMap<object, Map<string, GlyphMode>>();
-
-export function detectGlyphMode(
-	config: NormalizedPiStyleConfig,
-	env: Record<string, string | undefined> = {},
-): GlyphMode {
-	// Memoized per config object; the env-derived key keeps the result correct
-	// when the same config is resolved against different environments.
-	let byEnv = glyphModeCache.get(config);
-	if (!byEnv) {
-		byEnv = new Map();
-		glyphModeCache.set(config, byEnv);
-	}
-	const envKey = envKeyFor(env);
-	const cached = byEnv.get(envKey);
-	if (cached !== undefined) return cached;
-	const mode = computeGlyphMode(config, env);
-	byEnv.set(envKey, mode);
-	return mode;
-}
-
-function computeGlyphMode(config: NormalizedPiStyleConfig, env: Record<string, string | undefined>): GlyphMode {
-	if (env.PI_STYLE_NERD_FONTS === "1") return "nerd";
-	if (env.PI_STYLE_NERD_FONTS === "0") return "unicode";
-	if (config.theme.nerdFonts === "on") return "nerd";
-	if (config.theme.nerdFonts === "off") return "unicode";
-	if (env.GHOSTTY_RESOURCES_DIR) return "nerd";
-	// Conservative heuristic: known terminals commonly ship with a Nerd Font. An explicit override stays authoritative.
-	const term = (env.TERM_PROGRAM ?? "").toLowerCase();
-	if (["iterm", "wezterm", "kitty", "ghostty", "alacritty", "warp"].some((name) => term.includes(name))) {
-		return "nerd";
-	}
+/** Built-in glyphs never depend on terminal branding or installed fonts.
+ * Legacy Nerd Font settings are accepted by config normalization but ignored. */
+export function detectGlyphMode(config: NormalizedPiStyleConfig): GlyphMode {
 	return config.preset === "ascii" ? "ascii" : "unicode";
 }
 
@@ -257,7 +207,7 @@ export function resolveTheme(
 	env: Record<string, string | undefined> = {},
 ): ResolvedTheme {
 	const noColor = Object.hasOwn(env, "NO_COLOR") && env.NO_COLOR !== "" && config.theme.colors.colorOverride !== "on";
-	const mode = config.preset === "ascii" ? "ascii" : detectGlyphMode(config, env);
+	const mode = detectGlyphMode(config);
 	// Lazy per-instance prefix memo: repeated apply(token, ...) calls stop
 	// re-running colorPrefixFor (and Pi's active.fg()) for the same token.
 	const prefixes = new Map<SemanticToken, string>();

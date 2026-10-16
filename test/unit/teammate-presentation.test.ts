@@ -53,7 +53,7 @@ afterEach(() => {
 	resetBatchRegistry();
 	resetTeammateRuns();
 	resetTurnRegistry();
-	setToolsRenderConfig({ nerdFonts: false, collapseAfterTurn: false, mergedSummaryGlyph: "◈" });
+	setToolsRenderConfig({ nerdFonts: false, glyphMode: "unicode", collapseAfterTurn: false, mergedSummaryGlyph: "◈" });
 });
 
 describe("pi-teams tool presentation", () => {
@@ -1274,7 +1274,7 @@ describe("pi-teams message renderers", () => {
 		);
 		expect(noColor?.render(100)[0]).toContain("\x1b[38;2;68;102;170m@docs-review\x1b[39m");
 		setToolsRenderConfig({ nerdFonts: true });
-		expect(plain(message?.render(80) ?? [])[0]).toContain("\uf111 Message from @fe-fleet");
+		expect(plain(message?.render(80) ?? [])[0]).toContain("● Message from @fe-fleet");
 		const malformed = renderers.get("teammate-notification")?.(
 			{ content: "Legacy notification", details: {} } as Parameters<MessageRenderer>[0],
 			{ expanded: false } as Parameters<MessageRenderer>[1],
@@ -1285,6 +1285,23 @@ describe("pi-teams message renderers", () => {
 });
 
 describe("ADR 0012 team event transcript", () => {
+	it.each(["unicode", "ascii"] as const)("keeps model call/result glyphs identical in %s mode", (glyphMode) => {
+		setToolsRenderConfig({ glyphMode, nerdFonts: true });
+		const models = call("list_models", `models-${glyphMode}`, {});
+		const output = renderBoxedToolResult(
+			"list_models",
+			result("openai-codex/gpt-6-luna — GPT-6 Luna"),
+			{ expanded: false, isPartial: false },
+			theme,
+			models.ctx,
+		);
+		const header = `${glyphMode === "ascii" ? "*" : "●"} Models`;
+		expect(plain(models.component.render(100))[0]).toBe(header);
+		expect(plain(output.render(100))[0]).toBe(header);
+		const release = call("teammate_release", `release-${glyphMode}`, { name: "luna" });
+		expect(plain(release.component.render(100))[0]).toBe(`${header[0]} Release @luna`);
+	});
+
 	it("flips a live background spawn row only at settlement, and renders ● from admission after resetTeammateRuns", () => {
 		const spawn = call("Agent", "flip-1", { name: "worker", run_in_background: true, description: "Long job" });
 		expect(plain(spawn.component.render(100))[0]).toBe("◌ Agent @worker · Long job");
@@ -1392,8 +1409,8 @@ describe("ADR 0012 team event transcript", () => {
 		expect(plain(waiting.component.render(100))[0]).toBe("● Get result @worker · wait");
 	});
 
-	it("resolves ASCII team glyphs from the mergedSummaryGlyph ascii marker", () => {
-		setToolsRenderConfig({ mergedSummaryGlyph: ">" });
+	it("resolves ASCII team glyphs from the explicit session glyph mode", () => {
+		setToolsRenderConfig({ glyphMode: "ascii", mergedSummaryGlyph: ">" });
 		const spawn = call("Agent", "ascii-spawn", { name: "worker", run_in_background: true });
 		expect(plain(spawn.component.render(100))[0]).toBe("~ Agent @worker");
 		const mail = call("send_message", "ascii-mail", { target: "worker", message: "hi" });

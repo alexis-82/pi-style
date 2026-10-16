@@ -23,7 +23,7 @@
 - **User-prompt image previews** — images attached to your prompt render inline **below your message** as display-only session entries (never sent to the LLM) with `#N · WxH` labels tying each image to its marker; multiple images lay out side-by-side on kitty-capable terminals (up to 3 columns, stacked fallback elsewhere), sized by `messages.previewMaxWidth` (default 30) with Pi's global Ctrl+O expanding to 60 (`messages.showImagePreviews`).
 - **Clipboard image input** — the built-in `Ctrl+V` becomes a full image-paste flow with no other extension required: a sync native probe checks the clipboard at keystroke time, an `[Image #N] ` marker appears instantly in the editor (bytes attach asynchronously — no temp-file flash), backspacing right after a marker deletes it as one unit (discarding the image, image-paste semantics), and submit attaches real image attachments; raw pasted paths that bypass the editor still upgrade to `[image]` + attachment (`messages.clipboardImages`).
 - **Auto theme** — the `titanium` palette is applied at TUI session start when no other theme is active (configurable via `theme.autoApply`, disable with `"off"`).
-- **One visual system** — shared semantic theme, glyph sets (Nerd/Unicode/ASCII), and ANSI-safe rendering across every surface.
+- **One visual system** — shared semantic theme, glyph modes (Unicode by default; ASCII preset), and ANSI-safe rendering across every surface.
 
 All certified surfaces are **on by default**. The single OFF switch is:
 
@@ -93,7 +93,7 @@ Invalid values never break startup: they fall back safely and appear in `/pi-sty
 | `minimal` | Path/Git/context essentials, native-like editor, no startup overlay, low decoration. |
 | `compact` | High information density for medium terminals. |
 | `full` | Broad status data and all compatible visual surfaces. |
-| `ascii` | No Nerd Font assumptions and conservative separators. |
+| `ascii` | ASCII labels and separators for accessibility. |
 | `native` | Active Pi theme kept as-is (`theme.autoApply: "off"`) plus only low-risk status enhancements. |
 
 ---
@@ -107,7 +107,7 @@ The full schema, precedence, persistence, and migration policy live in [`docs/CO
 | Variable | Description |
 |---|---|
 | `PI_STYLE_DISABLED=1` | Disable all surfaces for emergency recovery. |
-| `PI_STYLE_NERD_FONTS=1\|0` | Force glyph mode. |
+| `PI_STYLE_NERD_FONTS=1\|0` | Legacy compatibility setting; accepted but ignored for rendering. |
 | `PI_STYLE_EDITOR=native\|compact\|boxed\|dock` | Temporary editor override. |
 | `PI_STYLE_STATUS=above\|below\|off` | Temporary status placement/state. |
 | `PI_STYLE_OSC11=1\|0` | Force terminal background sync policy. |

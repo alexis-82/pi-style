@@ -90,10 +90,12 @@ export function createPiStyleSessionCoordinator(pi: ExtensionAPI, hooks: Compati
 	};
 	/** Render-scoped tool config: line budgets + the resolved open-tree glyph. */
 	const applyToolsRenderConfig = (config: import("../domain/config-types.js").NormalizedPiStyleConfig) => {
+		const theme = resolveTheme(sessionTheme as never, config, process.env);
 		setToolsRenderConfig({
 			...config.tools,
-			batchOpenGlyph: resolveTheme(sessionTheme as never, config, process.env).glyph("batchOpen"),
-			nerdFonts: resolveTheme(sessionTheme as never, config, process.env).mode === "nerd",
+			batchOpenGlyph: theme.glyph("batchOpen"),
+			nerdFonts: false,
+			glyphMode: authorization.ascii ? "ascii" : theme.mode,
 			// The thought leader owns the single run row; tools-only runs use the
 			// identical format at their first tool. Legacy formatting is opt-out.
 			mergedTurnSummary: config.messages.mergedTurnSummary && config.messages.thoughtSummary,

@@ -26,7 +26,7 @@ import { AdaptiveDiffComponent, buildSplitRows, countDiffStats } from "../../../
 import { parseSimpleBashCommand } from "./command-shape.js";
 import { pluralForm, TREE_INDENT } from "./output-tree.js";
 import { compactToolPath, TOOL_PATH_MAX_WIDTH } from "./path.js";
-import { getStateElapsedMs, getToolsRenderConfig } from "./session-config.js";
+import { getStateElapsedMs } from "./session-config.js";
 import { type BoxedToolContext, getRenderCacheKey, memoizedStateComponent } from "./shared.js";
 
 // ── Classification ──────────────────────────────────────────────────────────
@@ -1485,25 +1485,21 @@ function parseGitAction(command: GitActionParsed["command"], text: string): GitA
 
 // ── Rendering ───────────────────────────────────────────────────────────────
 
-/** Nerd Font git-branch glyph used on git card headers in Nerd Font mode. */
-export const GIT_ICON = "\u{E725}";
-
 const GIT_CARD_HEAD_LIMIT = 6;
 const GIT_CONFLICT_PAIRS = new Set(["UU", "AA", "DD", "AU", "UA", "DU", "UD"]);
 
 function gitCardHeader(theme: BoxTheme, cls: GitSemanticClass, parsed?: GitParsedSemantic): string {
-	const icon = getToolsRenderConfig().nerdFonts ? `${GIT_ICON} ` : "";
 	let prefix: string;
 	if (cls.kind === "diff") {
 		const label = cls.show ? "Git show" : "Git diff";
-		prefix = `${icon}${label}`;
+		prefix = label;
 		if (cls.show && parsed?.kind === "diff" && parsed.hash) {
 			const shortHash = parsed.hash.slice(0, 7);
 			prefix += ` · ${shortHash}`;
 			if (parsed.subject) prefix += ` · ${parsed.subject}`;
 		}
 	} else if (cls.kind === "show-stat") {
-		prefix = `${icon}Git show`;
+		prefix = "Git show";
 		if (parsed?.kind === "show-stat") {
 			prefix += ` · ${parsed.hash.slice(0, 7)}`;
 			if (parsed.subject) prefix += ` · ${parsed.subject}`;
@@ -1531,7 +1527,7 @@ function gitCardHeader(theme: BoxTheme, cls: GitSemanticClass, parsed?: GitParse
 												: cls.command === "merge"
 													? "Git merge"
 													: "Git rebase";
-		prefix = `${icon}${label}`;
+		prefix = label;
 		// Header detail carries the parsed identity, matching `Git show · hash ·
 		// subject`: a commit's `[<branch> <hash>] <subject>`, a switch/checkout
 		// target branch, a reset --hard `HEAD is now at <hash> <subject>`, or a
@@ -1549,7 +1545,7 @@ function gitCardHeader(theme: BoxTheme, cls: GitSemanticClass, parsed?: GitParse
 		}
 	} else {
 		const label = cls.kind === "status" ? "Git status" : cls.kind === "diff-stat" ? "Git diff --stat" : "Git log";
-		prefix = `${icon}${label}`;
+		prefix = label;
 	}
 	return typeof theme?.bold === "function" ? theme.bold(prefix) : prefix;
 }

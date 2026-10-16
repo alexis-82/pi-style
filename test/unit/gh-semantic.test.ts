@@ -6,7 +6,6 @@ import {
 } from "../../extension-src/pi-style/features/tools/boxed/bash.js";
 import {
 	classifyGhCommand,
-	GH_ICON,
 	parseGhOutput,
 	renderGhCardLines,
 } from "../../extension-src/pi-style/features/tools/boxed/gh.js";
@@ -556,10 +555,10 @@ describe("renderGhCardLines", () => {
 		}
 	});
 
-	it("uses the Nerd Font gh icon on headers in Nerd Font mode", () => {
+	it("keeps GitHub headers portable when the legacy Nerd Font flag is enabled", () => {
 		setToolsRenderConfig({ nerdFonts: true });
 		const lines = plain(renderGhCardLines(theme, { cls: { kind: "run-list" } }, 80));
-		expect(lines[0]).toBe(`${GH_ICON} Runs`);
+		expect(lines[0]).toBe("Runs");
 	});
 
 	it("collapses long pr lists into a … N more row", () => {

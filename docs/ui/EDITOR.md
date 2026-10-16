@@ -82,12 +82,12 @@ Default prompt `❯`; Unicode/ASCII fallback `>`.
 Pi treats an input starting with `!` as a direct bash command and switches the editor border to the `bashMode` color. pi-style makes that mode visible in the input itself:
 
 ```text
-╭─  echo "zz" ─────────────────────────────────────────────╮
+╭─ $ echo "zz" ─────────────────────────────────────────────╮
 │  continuation / cursor                                    │
 ╰──────────────────────────────────────────────────────────╯
 ```
 
-- Prompt glyph becomes `` (Nerd Font; `$` in Unicode/ASCII modes; `theme.glyphs.bashPrompt` override), colored with the live bash border color.
+- Prompt glyph becomes `$` on every terminal; `theme.glyphs.bashPrompt` remains a user-controlled override, colored with the live bash border color.
 - The leading `!` (and the `!!` context-exclusion run) is hidden from the display; the cursor stays correctly aligned (the hardware-cursor marker rides along). A cursor sitting on a hidden `!` keeps the native cursor block.
 - Emptying the input returns to the normal `❯` prompt; the frame keeps the selected session color (or the theme's primary `accent` color).
 - A bare bang submit (`!` / `!!` with no command after it) is dropped instead of being sent to the agent as a literal message: Pi's submit path already cleared the editor, so the input just returns to the normal prompt. Real bash commands (`!echo hi`) and non-interactive input sources are never touched.

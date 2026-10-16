@@ -10,18 +10,20 @@ Team surfaces grew ad-hoc vocabularies: the spawn card said `● Spawn 2 backgro
 
 ## Decision
 
+> **Superseded rendering policy:** Unicode is now the default on all terminals; there is no Nerd Font mode/detection or built-in private-use icon set. ASCII remains available for accessibility. Legacy font settings are accepted but ignored. The implementation passes explicit `glyphMode: unicode|ascii` from the coordinator in `ToolsRenderConfig`; it does not infer ASCII from `mergedSummaryGlyph`. The internal legacy `nerdFonts` flag is accepted but forced false and ignored.
+
 ### 1. Glyph system for all team surfaces
 
-| State | Unicode / Nerd | ASCII | Fill rule |
+| State | Unicode | ASCII | Fill rule |
 | --- | --- | --- | --- |
-| Running | `◌` / `\uF10C` | `~` | hollow |
-| Settled | `●` / `\uF111` | `*` | filled |
+| Running | `◌` | `~` | hollow |
+| Settled | `●` | `*` | filled |
 | Failed | `✗` | `x` | crossed |
 | Stopped/partial | `○` (dim, `stopped` label) | `o` | hollow again |
 
 **Fill = progress:** the glyph flips exactly once, at settlement; partial/streaming updates never change it. Background Agent rows track the **run**, not the tool call: they stay `◌` after admission and flip to `●`/`✗` when the completion notification arrives (rule 5). Tree rows reuse the `├─ └─` + `… N more` truncation of the List/Glob/Grep/git boxless-card family; metadata is dim; duration/tokens sit at the line tail as `· 2m 03s · ↓146.5k`. Messages reuse the same event glyphs — `●` settled (muted tint; messages are not success/failure) and `✗` failed — with no separate envelope glyph (rule 9).
 
-Glyph mode is resolved inside `features/tools/boxed/session-config.ts` from the existing `nerdFonts` flag; ASCII is detected from the coordinator's per-session `mergedSummaryGlyph === ">"` ascii marker so `pi/session-coordinator.ts` stays untouched. If that marker is ever decoupled from the ascii preset, ASCII silently degrades to the unicode set (fail-closed, no invented glyphs).
+Rendering uses explicit `glyphMode: unicode|ascii` supplied by the coordinator in `ToolsRenderConfig`; ASCII is not inferred from `mergedSummaryGlyph`. The internal legacy `nerdFonts` flag remains accepted but is forced false and ignored.
 
 ### 2. Shared `normalizePreview()`
 
@@ -57,7 +59,7 @@ All three message surfaces (`teammate-message`, `send_message`, `steer_subagent`
 
 - **Collapsed — exactly one line:** `● Message from @worker (Ctrl+O to expand)` (inbound `teammate-message`), `● Message to @worker (Ctrl+O to expand)` (`send_message`), `● Steer to @worker (Ctrl+O to expand)` (`steer_subagent`). No preview, no verb slots, no `queued`/`accepted` receipts.
 - **Failure:** `✗ Message to @worker · not sent: <reason>` / `✗ Steer to @worker · <reason>` (error tint; the reason is always visible).
-- **Glyphs** are the same event glyphs: `●` muted, `✗` error; ASCII `*`/`x`; nerd `\uF111`. No envelope glyph exists anywhere.
+- **Glyphs** are the same event glyphs: `●` muted, `✗` error; ASCII `*`/`x`. No envelope glyph exists anywhere.
 - **Identity:** `@name` keeps its color from `details.color` (inbound) or the existing roster/label resolution (outbound/steer targets).
 - **Hint:** `(Ctrl+O to expand)` renders dim, only when collapsed AND hidden body content exists; never when expanded, never on an empty body.
 - **Expanded:** the identical head line minus the hint (no repeated sender badge, no `❯` echo), then the full body as `│ `-railed quote rows — 2-space indent + `│ ` on every physical line including blanks (the thinking-quote rail language, not tree rows). Bodies stay verbatim after the existing `clean`/`lines` ANSI/control guards; `normalizePreview` is NOT applied (there is no collapsed preview to normalize).
@@ -67,11 +69,11 @@ All three message surfaces (`teammate-message`, `send_message`, `steer_subagent`
 - **Per-surface preview logic:** rejected; five renderers already drifted apart, and the failure mode (one surface collapsing markdown, another leaking it) is exactly what a shared helper prevents.
 - **Supersede via message-content rewrite:** rejected; mutating session content breaks the producer contract and resume determinism. The flip is a live-only renderer enhancement.
 - **Settled glyph at background admission:** rejected; a filled glyph at admission lies about progress — the whole point of fill-equals-progress.
-- **ASCII glyph resolution in `pi/session-coordinator.ts`:** rejected to keep the coordinator out of scope; the `mergedSummaryGlyph` ascii marker already carries the per-session preset.
+- **ASCII glyph resolution in `pi/session-coordinator.ts`:** originally rejected; superseded by explicit `glyphMode` in `ToolsRenderConfig`, avoiding inference from `mergedSummaryGlyph`.
 
 ## Consequences
 
-Live background fleets read as running (`◌`) until each agent actually finishes; resumed sessions render `●` from admission (documented replay bound, rule 5). Model identity stays copyable: expanded contexts and the 1-match `list_models` row keep `provider/modelId` verbatim. All previews collapse deterministically from message content, so scroll-back, resume, and live agree. The ascii glyph coupling to `mergedSummaryGlyph` is confined to `session-config.ts` and documented above.
+Live background fleets read as running (`◌`) until each agent actually finishes; resumed sessions render `●` from admission (documented replay bound, rule 5). Model identity stays copyable: expanded contexts and the 1-match `list_models` row keep `provider/modelId` verbatim. All previews collapse deterministically from message content, so scroll-back, resume, and live agree. The explicit glyph mode is carried by `ToolsRenderConfig`; no coupling to `mergedSummaryGlyph` remains.
 
 ## Validation
 

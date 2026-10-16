@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { classifyBashCommand, resetBashTreeRegistry } from "../../extension-src/pi-style/features/tools/boxed/bash.js";
 import {
 	classifyGitCommand,
-	GIT_ICON,
 	parseGitOutput,
 	renderGitCardLines,
 } from "../../extension-src/pi-style/features/tools/boxed/git.js";
@@ -1044,10 +1043,10 @@ describe("renderGitCardLines", () => {
 		expect(lines[3]).toBe("  └─ 8d99731  feat: strict boxed tool-card state machine");
 	});
 
-	it("uses the Nerd Font git icon on headers in Nerd Font mode", () => {
+	it("keeps Git headers portable when the legacy Nerd Font flag is enabled", () => {
 		setToolsRenderConfig({ nerdFonts: true });
 		const lines = plain(renderGitCardLines(theme, { cls: { kind: "log" } }, 80));
-		expect(lines[0]).toBe(`${GIT_ICON} Git log`);
+		expect(lines[0]).toBe("Git log");
 	});
 
 	it("keeps every rendered line width-safe", () => {

@@ -22,11 +22,9 @@ import {
 	parseGrepOutput,
 	pluralForm,
 	renderGrepFilesTree,
-	SEARCH_ICON,
 	TREE_INDENT,
 } from "./output-tree.js";
 import { compactToolPath } from "./path.js";
-import { getToolsRenderConfig } from "./session-config.js";
 import { type BoxedToolDefinition, noteExecutionStart } from "./shared.js";
 
 const GREP_FILE_HEAD_LIMIT = 6;
@@ -94,21 +92,20 @@ function bold(theme: BoxTheme, text: string): string {
 /** `Grep: <pattern> <N> matches · <M> files · in <path>` (done) /
  *  `Grep: <pattern> · in <path>` (pending). */
 function formatGrepHeader(theme: BoxTheme, state: GrepPanelState): string {
-	const icon = getToolsRenderConfig().nerdFonts ? `${SEARCH_ICON} ` : "";
 	const label = bold(theme, "Grep:");
 	const patternPart = state.pattern ? ` ${theme.fg("text", state.pattern)}` : "";
 	const pathPart = state.pathLabel ? theme.fg("dim", ` · in ${state.pathLabel}`) : "";
 	if (state.isError) {
-		return `${icon}${theme.fg("error", bold(theme, "✗ Grep:"))}${state.pattern ? ` ${theme.fg("error", state.pattern)}` : ""}${pathPart}`;
+		return `${theme.fg("error", bold(theme, "✗ Grep:"))}${state.pattern ? ` ${theme.fg("error", state.pattern)}` : ""}${pathPart}`;
 	}
 	if (state.matches === undefined) {
-		return `${icon}${label}${patternPart}${pathPart}`;
+		return `${label}${patternPart}${pathPart}`;
 	}
 	const matchCount = state.matches.length;
 	const fileCount = groupMatchesByFile(state.matches).length;
 	const matchesPart = theme.fg("accent", `${matchCount} ${pluralForm("match", matchCount)}`);
 	const filesPart = theme.fg("dim", ` · ${fileCount} ${pluralForm("file", fileCount)}`);
-	return `${icon}${label}${patternPart} ${matchesPart}${filesPart}${pathPart}`;
+	return `${label}${patternPart} ${matchesPart}${filesPart}${pathPart}`;
 }
 
 function renderErrorLines(theme: BoxTheme, errorText: string, width: number): string[] {
@@ -138,7 +135,6 @@ function renderGrepPanelLines(theme: BoxTheme, state: GrepPanelState, width: num
 	// read/ls/find/bash honor) lifts the file-list head limit instead.
 	return renderGrepFilesTree(theme, header, state.matches, safeWidth, {
 		headLimit: state.open || expanded ? Number.POSITIVE_INFINITY : GREP_FILE_HEAD_LIMIT,
-		withIcons: getToolsRenderConfig().nerdFonts,
 	});
 }
 

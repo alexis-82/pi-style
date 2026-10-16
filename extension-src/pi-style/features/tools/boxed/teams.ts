@@ -728,7 +728,7 @@ function teamTool(name: string): BoxedToolDefinition {
 				teammate_retire: `Retire @${short(args.name)}`,
 				list_models: `Models${args.query ? ` · ${clean(args.query, 60)}` : ""}`,
 			};
-			return rows(() => [`${theme.fg("muted", "●")} ${labels[name] ?? name}`], 1);
+			return rows(() => [`${theme.fg("muted", teamEventGlyph("settled"))} ${labels[name] ?? name}`], 1);
 		},
 		result(result, options, theme, context) {
 			if (options.isPartial) return empty;

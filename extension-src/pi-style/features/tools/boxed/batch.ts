@@ -45,15 +45,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../shared/ansi.js";
 import { type BoxTheme, dimLine, formatToolTitlePrefix, themeCacheKey } from "../../../shared/box.js";
 import { safeTruncateToWidth, safeVisibleWidth } from "../../../shared/render-budget.js";
-import {
-	fileIcon,
-	OUTPUT_TREE_HEAD_LIMIT,
-	pluralForm,
-	renderOutputTree,
-	SEARCH_ICON,
-	TREE_CHILD_INDENT,
-	TREE_INDENT,
-} from "./output-tree.js";
+import { OUTPUT_TREE_HEAD_LIMIT, pluralForm, renderOutputTree, TREE_CHILD_INDENT, TREE_INDENT } from "./output-tree.js";
 import { compactToolPath } from "./path.js";
 import { getToolsRenderCacheSignature, getToolsRenderConfig } from "./session-config.js";
 import type { BoxedToolContext } from "./shared.js";
@@ -550,10 +542,7 @@ function formatLoneOutputHeader(theme: BoxTheme, meta: BatchToolMeta, member: Ba
 	const filesPart = theme.fg("accent", `${count} ${count === 1 ? "file" : "files"}`);
 	const patternPart = meta.toolName === "find" && member.pattern ? `${theme.fg("text", member.pattern)} ` : "";
 	const pathPart = member.pathLabel ? theme.fg("dim", ` · in ${compactToolPath(member.pathLabel)}`) : "";
-	// ls/find headers carry the magnifying-glass icon in Nerd Font mode,
-	// matching find/grep.
-	const icon = getToolsRenderConfig().nerdFonts ? `${SEARCH_ICON} ` : "";
-	return `${icon}${bold(theme, `${label}:`)} ${patternPart}${filesPart}${pathPart}`;
+	return `${bold(theme, `${label}:`)} ${patternPart}${filesPart}${pathPart}`;
 }
 
 /** Nested file subtree for one member inside a batched (2+) output panel. */
@@ -590,12 +579,10 @@ function renderMemberSubtree(
 	const visible = entries.slice(0, open ? entries.length : BATCH_MEMBER_FILE_HEAD_LIMIT);
 	const more = entries.length - visible.length;
 	const lastIndex = visible.length - 1;
-	const icons = getToolsRenderConfig().nerdFonts;
 	for (let i = 0; i < visible.length; i++) {
 		const entry = visible[i] ?? "";
-		const icon = icons && entry ? `${fileIcon(entry)} ` : "";
 		const branch = i < lastIndex || more > 0 ? "├─" : "└─";
-		const prefix = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${dimLine(branch)} ${icon}`;
+		const prefix = `${BATCH_TREE_INDENT}${trunk}${TREE_CHILD_INDENT}${dimLine(branch)} `;
 		out.push(renderPathRow(theme, prefix, entry, "toolOutput", safeWidth));
 	}
 	if (more > 0) {
@@ -619,7 +606,6 @@ function renderOutputBatchPanel(theme: BoxTheme, batch: BatchState, status: Batc
 				moreUnit: "file",
 				entryColor: "toolOutput",
 				indent: BATCH_TREE_INDENT,
-				withIcons: getToolsRenderConfig().nerdFonts,
 			});
 		}
 		// Pending/error/empty-without-entries: fall through to the path-only panel.

@@ -21,7 +21,7 @@ The target is a complete, maintainable UI plugin—not a single screen, a standa
 | [ui/EDITOR.md](ui/EDITOR.md) | Compact/boxed/dock editor styles, composition, metadata, alignment, and fallback behavior. |
 | [ui/STARTUP.md](ui/STARTUP.md) | Compact startup/header presentation and optional overlay behavior. |
 | [ui/MESSAGES-AND-TOOLS.md](ui/MESSAGES-AND-TOOLS.md) | Message prefixes, special blocks, tool badges, tool results, and compatibility constraints. |
-| [ui/THEMING.md](ui/THEMING.md) | Semantic colors, glyphs, style presets, Nerd Font detection, backgrounds, and accessibility. |
+| [ui/THEMING.md](ui/THEMING.md) | Semantic colors, glyphs, style presets, Unicode/ASCII glyph modes, backgrounds, and accessibility. |
 | [decisions/README.md](decisions/README.md) | Accepted architecture decision records. |
 | [../ROADMAP.md](../ROADMAP.md) | Phased implementation plan, dependencies, milestones, and exit criteria. |
 

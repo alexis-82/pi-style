@@ -65,7 +65,7 @@ Render tests call components or pure renderers at fixed widths and themes.
 - **TEST-002:** independently rendered lines end in safe/reset styling.
 - **TEST-003:** empty/missing data does not leave duplicate separators.
 - **TEST-004:** `NO_COLOR` preserves meaningful labels and state.
-- **TEST-005:** ASCII mode emits no private-use glyphs.
+- **TEST-005:** Unicode/ASCII built-in glyphs contain no private-use code points.
 - **TEST-006:** theme invalidation changes output when semantic colors change.
 
 ### Snapshot policy
@@ -115,7 +115,7 @@ Performance regressions fail CI only after stable baselines exist; before that, 
 | Terminal | Ghostty, iTerm2, Kitty, WezTerm, Linux terminal, Windows Terminal/WSL |
 | Width | 40, 60, 80, 120, 160 columns |
 | Height | short and normal viewports |
-| Font | Nerd Font, normal Unicode, ASCII mode |
+| Glyph mode | Unicode default, ASCII mode |
 | Color | truecolor, 256-color approximation, `NO_COLOR` |
 | Environment | local, tmux, SSH where practical |
 | Lifecycle | startup, reload, new/resume/fork, shutdown |

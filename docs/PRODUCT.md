@@ -25,12 +25,12 @@ Its information architecture uses native Pi layout with a responsive, segment-ba
 
 | Surface | Delivered behavior |
 | --- | --- |
-| Status line | Native Pi widgets above/below the editor; segment registry and named presets; model, live thinking, path, Git, context, usage, cache, cost, time; extension statuses and custom items; responsive primary/secondary rows; Unicode/ASCII fallback and optional Nerd glyphs. |
+| Status line | Native Pi widgets above/below the editor; segment registry and named presets; model, live thinking, path, Git, context, usage, cache, cost, time; extension statuses and custom items; responsive primary/secondary rows; Unicode by default; ASCII accessibility preset. |
 | Editor | Compact/boxed/dock/native `CustomEditor` treatments preserving Pi keybindings; prompt glyph and continuation alignment; thinking-level border; optional metadata rows fed by the shared status snapshot; previous-editor composition. |
 | Startup | Compact tri-color logo header by default; optional overlay with System & Context / Available Tools panels; quiet/off modes; snapshot-only rendering; width-safe dismissal and timeout. |
 | Messages | Assistant prefix; thinking and tool-only assistant states; boxed compaction/skill/branch/custom (MCP) blocks; native rich content preserved. |
 | Tools | Compact boxed call/result presentation for built-in tools with pending/running/error markers; elapsed metrics; native expansion/truncation/diff preserved; completed turns collapse into a single summary line with global Ctrl+O expand (ADR 0007). |
-| Theme | Shared semantic resolver over the active Pi theme; Nerd/Unicode/ASCII glyph sets; `NO_COLOR` and ANSI-safe output; explicit overrides. |
+| Theme | Shared semantic resolver over the active Pi theme; Unicode default and ASCII glyph modes; `NO_COLOR` and ANSI-safe output; explicit overrides. |
 | Operations | Global/project settings, `/pi-style` commands, reload-safe lifecycle, `/pi-style doctor` diagnostics, automated unit/integration/render/performance tests. |
 
 ## User experience principles
@@ -39,7 +39,7 @@ Its information architecture uses native Pi layout with a responsive, segment-ba
 2. **Compact, not cryptic.** Short labels (`think:high`, `ctx:42%`) are acceptable when stable; ambiguous glyph-only output is not.
 3. **Hierarchy before color.** Spacing, grouping, framing, and placement must communicate structure in no-color mode.
 4. **No accidental duplication.** Presets choose one primary owner per datum; the default must not show the same text twice.
-5. **Graceful degradation.** Missing Git data, unsupported terminals, absent Nerd Fonts, unknown component shapes, or extension conflicts disable one surface—never crash Pi or corrupt the terminal.
+5. **Graceful degradation.** Missing Git data, unsupported terminals, unknown component shapes, or extension conflicts disable one surface—never crash Pi or corrupt the terminal.
 6. **Predictable configuration.** Defaults, global, project, env, and session commands use one documented precedence ladder; invalid values normalize safely.
 
 ## Supported UI surfaces

@@ -61,7 +61,7 @@ No double-boxing: the Git header lives outside; only viewer content (diff, log, 
 - **`gh` selectively.** `pr list/view/create/checks`, `issue list/view`, `run list/view/watch` via `gh --json` output. `gh api`, extensions, and free-form JSON stay raw (or a JSON tree viewer later).
 - **No "Git mode".** Commands like `git diff | grep …` fall back raw by the pipe rule; `git -C`, env vars, aliases, and chains are handled by the existing tokenizer or fall back.
 - **GitHub vs Git distinction** is icon + title (`git` vs `PR` vs `Issue` vs `Checks`), not a separate component system. The branch is only shown when it affects the result (push/merge/ahead-behind/PR base-head); the status line already owns `⎇ main`.
-- **Icons** (Nerd Font glyphs) are gated by the existing glyph-mode config, like `SEARCH_ICON`/`fileIcon`.
+- **Superseded:** current rendering uses plain labels for git/gh/search headers and does not render optional file-type/search icons.
 - **Action lines** render as hints only; no keybinding registration in v1.
 
 ### State
@@ -105,7 +105,7 @@ Rejected for v1. It is a new compatibility surface (binding ownership, conflicts
 ## Validation implications
 
 - Unit tests (`test/unit/`): `git status` long/`--short`, `diff --stat`, `log`, per-file diff splitting; `gh --json` pr/issue/run parsing; every parser returns `null` on hostile input.
-- Render tests (`test/render/`): compact card snapshots, boxed diff reuse snapshots, raw-fallback snapshots, `Ctrl+O` expand preservation, `NO_COLOR`/ASCII and Nerd-Font mode.
+- Render tests (`test/render/`): compact card snapshots, boxed diff reuse snapshots, raw-fallback snapshots, `Ctrl+O` expand preservation, `NO_COLOR` and ASCII mode.
 - Requirement mapping: `TOOL-001` (no execution change), `TOOL-002` (states), `TOOL-003` (expansion preserved), `TOOL-004` (concise headers), `TOOL-005` (fallback), plus new `GIT-*`/`GH-*` requirements in `docs/ui/MESSAGES-AND-TOOLS.md`.
 - Compatibility: extends the certified bash renderer surface only; unsupported Pi shapes disable the surface per ADR 0004, with native fallback intact.
 

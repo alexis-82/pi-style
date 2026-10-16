@@ -3,17 +3,19 @@
 // Set once per session by the compatibility coordinator; read inside renderers.
 // Kept out of the render path (no filesystem/config reads during render).
 
-import { GLYPHS } from "../../../domain/theme.js";
+import { GLYPHS, type GlyphMode } from "../../../domain/theme.js";
 
 export interface ToolsRenderConfig {
 	maxCollapsedLines: number;
 	maxExpandedLines: number;
 	dimOutput: boolean;
 	showElapsed: boolean;
-	/** Open-tree glyph for the done batch header (nerd `\u{F111}` / unicode `●`). */
+	/** Open-tree glyph for the done batch header (Unicode `●`, ASCII `v`). */
 	batchOpenGlyph: string;
-	/** Nerd Font mode is active: file-type icons render in output trees. */
+	/** @deprecated Accepted for compatibility; always false. */
 	nerdFonts: boolean;
+	/** Explicit glyph mode shared with the resolved session theme. */
+	glyphMode: GlyphMode;
 	/** Collapse a completed turn's tool blocks into one summary line (ADR 0007). */
 	collapseAfterTurn: boolean;
 	/** Also collapse mutating tools (edit/write/…) into the summary; off keeps them visible. */
@@ -36,6 +38,7 @@ let sessionToolsConfig: ToolsRenderConfig = {
 	showElapsed: true,
 	batchOpenGlyph: "●",
 	nerdFonts: false,
+	glyphMode: "unicode",
 	collapseAfterTurn: true,
 	collapseMutatingTools: false,
 	mergeChunkedReads: true,
@@ -44,7 +47,7 @@ let sessionToolsConfig: ToolsRenderConfig = {
 };
 
 export function setToolsRenderConfig(config: Partial<ToolsRenderConfig>): void {
-	sessionToolsConfig = { ...sessionToolsConfig, ...config };
+	sessionToolsConfig = { ...sessionToolsConfig, ...config, nerdFonts: false };
 }
 
 export function getToolsRenderConfig(): ToolsRenderConfig {
@@ -55,15 +58,9 @@ export function getToolsRenderConfig(): ToolsRenderConfig {
  *  exactly once, at settlement. */
 export type TeamEventState = "running" | "settled" | "failed" | "stopped";
 
-/** Team event glyph for the session's preset (ADR 0012 §1). The preset comes
- *  from the existing `nerdFonts` flag; ASCII is detected from the coordinator's
- *  `mergedSummaryGlyph === ">"` ascii marker so `pi/session-coordinator.ts`
- *  stays untouched. If that marker is ever decoupled from the ascii preset,
- *  ASCII silently degrades to the unicode set (fail-closed, no invented
- *  glyphs). */
+/** Team event glyph from the same explicit mode as the session theme. */
 export function teamEventGlyph(state: TeamEventState): string {
-	const config = getToolsRenderConfig();
-	const preset = config.nerdFonts ? GLYPHS.nerd : config.mergedSummaryGlyph === ">" ? GLYPHS.ascii : GLYPHS.unicode;
+	const preset = GLYPHS[getToolsRenderConfig().glyphMode];
 	switch (state) {
 		case "running":
 			return preset.eventRunning;
@@ -83,7 +80,7 @@ export function getToolsRenderCacheSignature(): string {
 		sessionToolsConfig.dimOutput ? 1 : 0,
 		sessionToolsConfig.showElapsed ? 1 : 0,
 		sessionToolsConfig.batchOpenGlyph,
-		sessionToolsConfig.nerdFonts ? 1 : 0,
+		sessionToolsConfig.glyphMode,
 		sessionToolsConfig.collapseAfterTurn ? 1 : 0,
 		sessionToolsConfig.collapseMutatingTools ? 1 : 0,
 		sessionToolsConfig.mergeChunkedReads ? 1 : 0,

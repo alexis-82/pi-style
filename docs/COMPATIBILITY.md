@@ -67,9 +67,9 @@ The package declares an explicit peer dependency range based on tested versions;
 
 Target validation matrix: Ghostty, iTerm2, Kitty, WezTerm, a common Linux terminal, Windows Terminal native and WSL, and SSH/tmux where detection is incomplete.
 
-**Width and Unicode** — all lines use ANSI-aware visible width; ambiguous-width and private-use glyphs are optional; ASCII mode avoids private-use separators.
+**Width and Unicode** — all lines use ANSI-aware visible width; Unicode is the default on all terminals. The ASCII preset avoids Unicode glyphs for accessibility.
 
-**Nerd Font detection** — order: explicit `PI_STYLE_NERD_FONTS=1|0` → explicit config `on|off` → strong signals like `GHOSTTY_RESOURCES_DIR` → conservative terminal-name heuristic → Unicode/ASCII fallback. Terminal brand never guarantees the configured font; the explicit override is authoritative.
+**Legacy Nerd Font settings** — `PI_STYLE_NERD_FONTS=1|0` and `theme.nerdFonts` (`auto`/`on`/`off`) remain accepted for compatibility but are ignored for rendering; there is no Nerd mode or detection.
 
 **`NO_COLOR`** — pi-style removes decorative color while preserving text, borders/glyph fallbacks, spacing, labels, and error/state markers.
 
@@ -89,7 +89,7 @@ Terminal-global background synchronization is unsupported/off for technical v1: 
 | Missing widget placement support | Supported placement or no secondary row. |
 | Existing custom editor | Preserve it by default; status/theme remain active. |
 | Missing footer data | Hide branch/extension-status segments. |
-| No Nerd Font | Unicode/ASCII glyphs and separators. |
+| All terminals | Unicode glyphs by default; ASCII preset is available for accessibility. |
 | `NO_COLOR` | Structural monochrome rendering. |
 | Tool/message patch mismatch | Native tool/message rendering for the affected surface only. |
 | Terminal-global background sync unsupported/off | No OSC output, query/polling, widget, or ownership. |
@@ -107,7 +107,7 @@ Terminal-global background synchronization is unsupported/off for technical v1: 
 - **COMPAT-003:** reload never stacks the same patch.
 - **COMPAT-004:** cleanup never overwrites a later owner's replacement.
 - **COMPAT-005:** existing editor/footer ownership follows documented preference settings.
-- **COMPAT-006:** unknown font support uses fallback glyphs.
+- **COMPAT-006:** built-in glyphs use Unicode by default, with an explicit ASCII preset.
 - **COMPAT-007:** terminal mutations are restored.
 - **COMPAT-008:** unsupported headless modes perform no terminal work.
 

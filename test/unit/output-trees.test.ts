@@ -7,7 +7,6 @@ import {
 	renderBoxedToolResult as dispatchResult,
 } from "../../extension-src/pi-style/features/tools/boxed/index.js";
 import {
-	fileIcon,
 	groupMatchesByFile,
 	parseFindOutput,
 	parseGrepOutput,
@@ -16,7 +15,6 @@ import {
 	pluralForm,
 	renderGrepFilesTree,
 	renderOutputTree,
-	SEARCH_ICON,
 } from "../../extension-src/pi-style/features/tools/boxed/output-tree.js";
 import { setToolsRenderConfig } from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
 import type { BoxedToolContext } from "../../extension-src/pi-style/features/tools/boxed/shared.js";
@@ -107,45 +105,26 @@ describe("pluralForm", () => {
 	});
 });
 
-describe("fileIcon", () => {
-	it("returns the folder icon for directory entries and file icons by extension", () => {
-		expect(fileIcon("test/unit/")).toBe("\u{F415}"); // folder
-		expect(fileIcon("a.ts")).toBe("\u{E628}"); // typescript
-		expect(fileIcon("docs/README.md")).toBe("\u{E609}"); // markdown
-		expect(fileIcon("src/index.tsx")).toBe("\u{E7BA}"); // react
-		expect(fileIcon("unknown.xyz")).toBe("\u{E612}"); // default
-		expect(fileIcon("Dockerfile")).toBe("\u{E7B0}"); // no-extension name lookup
-	});
+describe("plain output rendering", () => {
+	it.each([false, true])("keeps output portable with the legacy flag set to %s", (nerdFonts) => {
+		setToolsRenderConfig({ nerdFonts });
+		const lines = plain(renderOutputTree(theme, "List: 2 files · in .", ["src/", "a.ts"], 80));
+		expect(lines[1]).toBe("  ├─ src/");
+		expect(lines[2]).toBe("  └─ a.ts");
+		const findContext = context({ toolCallId: "portable-find", args: { pattern: "**/*", path: "." }, cwd: "/fake" });
+		const find = dispatchCall("find", { pattern: "**/*", path: "." }, theme, findContext);
+		dispatchResult("find", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, findContext);
+		expect(plain(find.render(80))[0]).toBe("Find: **/* 2 files · in current directory");
 
-	it("prefixes entries with icons when withIcons is set", () => {
-		const lines = plain(renderOutputTree(theme, "List: 2 files · in .", ["src/", "a.ts"], 80, { withIcons: true }));
-		expect(lines[1]).toBe("  ├─ \u{F415} src/");
-		expect(lines[2]).toBe("  └─ \u{E628} a.ts");
-	});
+		const grepContext = context({ toolCallId: "portable-grep", args: { pattern: "foo", path: "src" }, cwd: "/fake" });
+		const grep = dispatchCall("grep", { pattern: "foo", path: "src" }, theme, grepContext);
+		dispatchResult("grep", textResult("a.ts:3: alpha"), { expanded: false, isPartial: false }, theme, grepContext);
+		expect(plain(grep.render(80))[0]).toBe("Grep: foo 1 match · 1 file · in src");
 
-	it("prefixes find/grep headers with the search icon in Nerd mode", () => {
-		setToolsRenderConfig({ nerdFonts: true });
-		const ctx1 = context({ toolCallId: "fi", args: { pattern: "**/*", path: "." }, cwd: "/fake" });
-		const findCall = dispatchCall("find", { pattern: "**/*", path: "." }, theme, ctx1);
-		dispatchResult("find", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, ctx1);
-		expect(plain(findCall.render(80))[0]).toBe(`${SEARCH_ICON} Find: **/* 2 files · in current directory`);
-
-		const ctx2 = context({ toolCallId: "gi", args: { pattern: "foo", path: "src" }, cwd: "/fake" });
-		const grepCall = dispatchCall("grep", { pattern: "foo", path: "src" }, theme, ctx2);
-		dispatchResult("grep", textResult("a.ts:3: alpha"), { expanded: false, isPartial: false }, theme, ctx2);
-		expect(plain(grepCall.render(80))[0]).toBe(`${SEARCH_ICON} Grep: foo 1 match · 1 file · in src`);
-
-		const ctx3 = context({ toolCallId: "li", args: { path: "/fake" }, cwd: "/fake" });
-		const lsCall = dispatchCall("ls", { path: "/fake" }, theme, ctx3);
-		dispatchResult("ls", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, ctx3);
-		expect(plain(lsCall.render(80))[0]).toBe(`${SEARCH_ICON} List: 2 files · in /fake`);
-	});
-
-	it("does not prefix headers with the search icon outside Nerd mode", () => {
-		const ctx1 = context({ toolCallId: "fi2", args: { pattern: "**/*", path: "." }, cwd: "/fake" });
-		const findCall = dispatchCall("find", { pattern: "**/*", path: "." }, theme, ctx1);
-		dispatchResult("find", textResult("a.ts"), { expanded: false, isPartial: false }, theme, ctx1);
-		expect(plain(findCall.render(80))[0]).toBe("Find: **/* 1 file · in current directory");
+		const lsContext = context({ toolCallId: "portable-ls", args: { path: "/fake" }, cwd: "/fake" });
+		const ls = dispatchCall("ls", { path: "/fake" }, theme, lsContext);
+		dispatchResult("ls", textResult("a.ts\nb.ts"), { expanded: false, isPartial: false }, theme, lsContext);
+		expect(plain(ls.render(80))[0]).toBe("List: 2 files · in /fake");
 	});
 });
 

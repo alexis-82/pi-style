@@ -140,7 +140,7 @@ A feature failure must not tear down unrelated surfaces:
 | Message patch mismatch | Disable message styling only. |
 | Tool renderer conflict | Preserve existing/native renderer. |
 | Theme-extra discovery failure | Use active Pi theme and built-in fallback. |
-| Nerd glyph uncertainty | Use Unicode/ASCII set. |
+| Terminal glyph support | Use Unicode by default; ASCII preset is available. |
 | Stale session callback | Ignore through generation check. |
 
 ## Roadmap coverage

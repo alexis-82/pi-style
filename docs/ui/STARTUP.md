@@ -46,7 +46,7 @@ Every output line is measured with ANSI-aware width helpers and truncated safely
 
 ## Theme and glyphs
 
-Resolves semantic colors from the active Pi theme supplied by the public factory callback; `invalidate()` requests a fresh render rather than retaining old ANSI strings. The shared resolver provides Unicode/ASCII/no-color behavior; no private-use glyph is the only source of meaning.
+Resolves semantic colors from the active Pi theme supplied by the public factory callback; `invalidate()` requests a fresh render rather than retaining old ANSI strings. The shared resolver provides Unicode/ASCII/no-color behavior; Unicode is the default; ASCII remains available for accessibility.
 
 ## Failure fallback
 

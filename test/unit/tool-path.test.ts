@@ -133,14 +133,14 @@ describe("tool path render contracts", () => {
 		expect(plain(first.render(120))).toContain(`${compact}:1-40`);
 	});
 
-	it.each([false, true])("compacts output entries and grep file nodes with icons=%s", (withIcons) => {
-		const lines = renderOutputTree(theme, "Find: 1 file", [path], 45, { withIcons });
+	it("compacts output entries and grep file nodes", () => {
+		const lines = renderOutputTree(theme, "Find: 1 file", [path], 45);
 		expect(plain(lines)).toContain("AcceptStageWorkflow.cs");
 		const matches = [
 			{ file: path, line: 1, content: "x" },
 			{ file: `${directory}/OtherHandler.cs`, line: 2, content: "y" },
 		];
-		const grep = renderGrepFilesTree(theme, "Grep: 2 matches", matches, 45, { withIcons });
+		const grep = renderGrepFilesTree(theme, "Grep: 2 matches", matches, 45);
 		expect(plain(grep)).toContain("AcceptStageWorkflow.cs");
 		for (const line of [...lines, ...grep]) expect(visibleWidth(line)).toBeLessThanOrEqual(45);
 	});

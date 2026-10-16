@@ -31,70 +31,6 @@ export const TREE_CHILD_INDENT = "  ";
 /** Default number of entries/matches shown before collapsing to "… N more". */
 export const OUTPUT_TREE_HEAD_LIMIT = 6;
 
-// ── Nerd Font file-type icons ───────────────────────────────────────────────
-// Only used when the session glyph mode is nerd (see withIcons). Unicode/ASCII
-// modes render plain entries.
-
-const FILE_ICON_FOLDER = "\u{F415}"; //  (nf-md-folder)
-const FILE_ICON_DEFAULT = "\u{E612}"; //  (nf-seti-default)
-/** Search (magnifying-glass) icon for find/grep headers (nf-fa-search). */
-export const SEARCH_ICON = "\u{F002}";
-const FILE_ICONS: Readonly<Record<string, string>> = {
-	ts: "\u{E628}", //  (nf-seti-typescript)
-	tsx: "\u{E7BA}", //  (nf-seti-react)
-	js: "\u{E62C}", //  (nf-seti-javascript)
-	jsx: "\u{E7BA}", //  (nf-seti-react)
-	mjs: "\u{E62C}",
-	cjs: "\u{E62C}",
-	json: "\u{E62B}", //  (nf-seti-json)
-	md: "\u{E609}", //  (nf-seti-markdown)
-	mdx: "\u{E609}",
-	css: "\u{E749}", //  (nf-seti-css)
-	scss: "\u{E749}",
-	sass: "\u{E749}",
-	less: "\u{E749}",
-	html: "\u{E60E}", //  (nf-seti-html)
-	htm: "\u{E60E}",
-	py: "\u{E606}", //  (nf-seti-python)
-	go: "\u{E627}", //  (nf-seti-go)
-	rs: "\u{E7A8}", //  (nf-seti-rust)
-	sh: "\u{E795}", //  (nf-seti-shell)
-	bash: "\u{E795}",
-	zsh: "\u{E795}",
-	fish: "\u{E795}",
-	yml: "\u{E615}", //  (nf-seti-yaml)
-	yaml: "\u{E615}",
-	toml: "\u{E615}",
-	java: "\u{E738}", //  (nf-seti-java)
-	c: "\u{E61E}", //  (nf-seti-c)
-	h: "\u{E61E}",
-	cpp: "\u{E61E}",
-	hpp: "\u{E61E}",
-	cs: "\u{E61E}",
-	svg: "\u{E62A}", //  (nf-seti-svg)
-	png: "\u{E61D}", //  (nf-seti-image)
-	jpg: "\u{E61D}",
-	jpeg: "\u{E61D}",
-	gif: "\u{E61D}",
-	webp: "\u{E61D}",
-	pdf: "\u{E67A}", //  (nf-seti-pdf)
-	dockerfile: "\u{E7B0}", //  (nf-seti-docker)
-	lock: "\u{E7B0}",
-	gitignore: "\u{E702}", //  (nf-seti-git)
-	gitattributes: "\u{E702}",
-	vue: "\u{ED43}", //  (nf-vue)
-	svelte: "\u{E697}",
-};
-
-/** Nerd Font file-type icon for a path, or "" when not applicable. */
-export function fileIcon(path: string): string {
-	if (path.endsWith("/")) return FILE_ICON_FOLDER;
-	const name = path.split("/").pop() ?? path;
-	const lower = name.toLowerCase();
-	const ext = lower.includes(".") ? lower.slice(lower.lastIndexOf(".") + 1) : lower;
-	return FILE_ICONS[ext] ?? FILE_ICONS[lower] ?? FILE_ICON_DEFAULT;
-}
-
 /** Lines produced by these native tools to signal truncation (already in the
  *  output text, not separate metadata). Dropped before parsing. */
 const NOTICE_LINE_PATTERN = /^\[[^\]]*\]$/;
@@ -222,8 +158,6 @@ export interface OutputTreeOptions {
 	entryColor?: string;
 	/** Indent prefix applied to every row (defaults to TREE_INDENT). */
 	indent?: string;
-	/** Nerd Font mode: prefix each entry with its file-type icon. */
-	withIcons?: boolean;
 }
 
 /**
@@ -244,8 +178,7 @@ export function renderOutputTree(
 	const indent = options.indent ?? TREE_INDENT;
 	const safeWidth = Math.max(1, width);
 	const label = (entry: string) => {
-		const icon = options.withIcons && entry ? `${fileIcon(entry)} ` : "";
-		return `${icon}${compactToolPath(entry, safeWidth - safeVisibleWidth(indent) - 3 - safeVisibleWidth(icon))}`;
+		return compactToolPath(entry, safeWidth - safeVisibleWidth(indent) - 3);
 	};
 
 	const out: string[] = [safeTruncateToWidth(header, safeWidth, "…")];
@@ -271,8 +204,6 @@ export interface GrepFilesTreeOptions {
 	headLimit?: number;
 	/** Indent prefix applied to every row (defaults to TREE_INDENT). */
 	indent?: string;
-	/** Nerd Font mode: prefix file nodes with their file-type icon. */
-	withIcons?: boolean;
 }
 
 /**
@@ -293,7 +224,6 @@ export function renderGrepFilesTree(
 		moreUnit: "file",
 		entryColor: "accent",
 		indent: options.indent ?? TREE_INDENT,
-		...(options.withIcons !== undefined ? { withIcons: options.withIcons } : {}),
 	});
 }
 

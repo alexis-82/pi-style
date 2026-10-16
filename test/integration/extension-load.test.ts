@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executePiStyleCommand } from "../../extension-src/pi-style/app/command-service.js";
 import { resetBatchRegistry } from "../../extension-src/pi-style/features/tools/boxed/batch.js";
 import { renderBoxedToolCall as dispatchCall } from "../../extension-src/pi-style/features/tools/boxed/index.js";
+import {
+	getToolsRenderConfig,
+	setToolsRenderConfig,
+	teamEventGlyph,
+} from "../../extension-src/pi-style/features/tools/boxed/session-config.js";
 import type { BoxedToolContext } from "../../extension-src/pi-style/features/tools/boxed/shared.js";
 import { disposePiCompatibilityProbe, targetSpecs } from "../../extension-src/pi-style/pi/compatibility-probe.js";
 import {
@@ -39,6 +44,28 @@ describe("pi-style extension lifecycle foundation", () => {
 		// prototype registry clean for the next test.
 		for (const spec of targetSpecs) {
 			for (const record of getCompatibilityRecords(spec.target)) record.disposer();
+		}
+	});
+
+	it.each([
+		{ preset: "default", flag: false, mode: "unicode", glyph: "●" },
+		{ preset: "default", flag: true, mode: "ascii", glyph: "*" },
+		{ preset: "ascii", flag: false, mode: "ascii", glyph: "*" },
+	])("uses $mode tool glyphs for preset=$preset and ASCII flag=$flag", async ({ preset, flag, mode, glyph }) => {
+		const original = { ...getToolsRenderConfig() };
+		const host = new FakePiHost({ flags: { "pi-style-ascii": flag } });
+		const settings = injectedSettings({ preset });
+		const coordinator = createPiStyleSessionCoordinator(host.extensionApi, {
+			filePort: settings.port,
+			paths: settings.paths,
+		});
+		try {
+			await coordinator.start({ reason: "startup" }, host.extensionContext);
+			expect(getToolsRenderConfig().glyphMode).toBe(mode);
+			expect(teamEventGlyph("settled")).toBe(glyph);
+		} finally {
+			coordinator.shutdown();
+			setToolsRenderConfig(original);
 		}
 	});
 

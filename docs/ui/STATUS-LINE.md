@@ -127,7 +127,7 @@ Extensions publish status through `ctx.ui.setStatus(key, text)`; Pi aggregates t
 | `minimal` | `left: path, git` · trailing `context_pct` · dot/slash separator. |
 | `compact` | `left: model, thinking, git` · trailing `context_pct` · `secondary: extension_statuses`. |
 | `full` | `left: hostname, model, thinking, path, git, session` · trailing `token_in, token_out, cache_read, cost, context_pct, time_spent, time` · `secondary: extension_statuses`. |
-| `ascii` | ASCII labels and separators; no private-use glyphs. |
+| `ascii` | ASCII labels and separators. |
 | `native` | Minimal color and decoration preserving the active Pi theme. |
 
 ## Custom layout
@@ -181,7 +181,7 @@ Cache key includes width, layout/config revision, snapshot revision, theme gener
 - no Git, clean Git, all dirty counters, Git error/stale refresh;
 - context thresholds and missing window; subscription vs API-cost mode;
 - duplicate/disabled/explicit-empty layout configuration;
-- Unicode, Nerd, ASCII, and no-color rendering; live/final usage transition;
+- Unicode, ASCII, and no-color rendering; live/final usage transition;
 - widget install/remove and render-request events.
 
 ## Roadmap coverage

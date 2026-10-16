@@ -48,7 +48,6 @@ import {
 	pluralForm,
 	renderGrepFilesTree,
 	renderOutputTree,
-	SEARCH_ICON,
 	TREE_INDENT,
 } from "./output-tree.js";
 import { compactToolPath } from "./path.js";
@@ -735,9 +734,7 @@ export function classifyBashCommand(command: string): BashTreeClass | null {
 function bashTreeHeader(theme: BoxTheme, cls: BashTreeClass, counts?: { files?: number; matches?: number }): string {
 	const label = cls.kind === "find" ? "Find" : cls.kind === "ls" ? "List" : "Grep";
 	const hasDetail = Boolean(cls.pattern) || Boolean(counts);
-	// ls/find/grep headers carry the magnifying-glass icon in Nerd Font mode.
-	const icon = getToolsRenderConfig().nerdFonts ? `${SEARCH_ICON} ` : "";
-	const prefix = icon + (hasDetail ? `${label}:` : label);
+	const prefix = hasDetail ? `${label}:` : label;
 	const patternPart = cls.pattern ? ` ${theme.fg("text", cls.pattern)}` : "";
 	let middle = "";
 	if (counts) {
@@ -898,7 +895,6 @@ function renderBashTreeLines(
 		return renderOutputTree(theme, bashTreeHeader(theme, cls, { files: entries.length }), entries, safeWidth, {
 			moreUnit: "file",
 			indent: TREE_INDENT,
-			withIcons: getToolsRenderConfig().nerdFonts,
 		});
 	}
 	if (state.parsed && "matches" in state.parsed) {
@@ -908,7 +904,7 @@ function renderBashTreeLines(
 			bashTreeHeader(theme, cls, { matches: matches.length, files: groupMatchesByFile(matches).length }),
 			matches,
 			safeWidth,
-			{ indent: TREE_INDENT, withIcons: getToolsRenderConfig().nerdFonts },
+			{ indent: TREE_INDENT },
 		);
 	}
 	return [safeTruncateToWidth(bashTreeHeader(theme, cls), safeWidth, "…")];

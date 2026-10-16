@@ -39,19 +39,9 @@ Users combine a style preset with any compatible Pi theme. The `theme.autoApply`
 
 Components use the theme object provided by Pi callbacks — never a global theme singleton. The resolver maps pi-style semantics onto Pi tokens (`accent`, `text`, `muted`, `dim`, borders, `success`/`warning`/`error`, tool/message/markdown tokens, thinking-level tokens). Theme invalidation must clear strings containing pre-baked ANSI codes.
 
-## Glyph sets
+## Glyph modes
 
-| Set | Content |
-| --- | --- |
-| Nerd | Segment separators and private-use icons for Pi, model, folder, branch, context, cache, time, agents. |
-| Unicode-safe | Common Unicode: `π`, `⎇`, `·`, `│`, `◫`, and text labels where symbol support is uncertain. |
-| ASCII | Plain labels/separators: `pi`, `git`, `ctx`, `|`, `>`, `<`. |
-
-No essential meaning may exist only in a private-use glyph.
-
-## Nerd Font detection
-
-Conservative order: explicit `PI_STYLE_NERD_FONTS=1|0` → explicit config `on|off` → strong signals like `GHOSTTY_RESOURCES_DIR` → case-insensitive known-terminal heuristic → Unicode/ASCII fallback. The doctor command explains why a mode was selected; auto-detection never claims certainty about the configured font.
+Unicode is the default on every terminal and environment; there is no Nerd Font mode, detection, or built-in private-use icon set. The `ascii` preset remains available for accessibility. Legacy `theme.nerdFonts` (`auto`/`on`/`off`) and `PI_STYLE_NERD_FONTS` (`1`/`0`) are accepted for compatibility but ignored for rendering. Tool trees and git/gh/search headers use plain labels rather than optional file-type or search icons. User-defined `theme.glyphs` overrides remain user-controlled.
 
 ## ANSI and width
 
@@ -81,7 +71,7 @@ Foreground/background colors are removed; labels, prefixes, borders, and state t
 - Context thresholds include a number/label, not color alone.
 - Pending/success/error tools have distinct symbols/text.
 - Dim text is not used for essential prompt/input content.
-- Configurable glyph overrides support terminals with width/rendering issues.
+- User-controlled `theme.glyphs` overrides remain available.
 
 ## Theme resources
 
@@ -92,7 +82,7 @@ Optional complete Pi themes ship under `themes/` (`titanium.json`, `titanium-lig
 - **THEME-001:** all surfaces use the shared resolver.
 - **THEME-002:** theme change invalidates pre-baked styled caches.
 - **THEME-003:** essential meaning survives no-color and ASCII modes.
-- **THEME-004:** auto font detection has an explicit override.
+- **THEME-004:** legacy font settings are accepted but ignored for rendering.
 - **THEME-005:** every rendered line is ANSI-contained.
 - **THEME-006:** terminal-global background synchronization is unsupported/off for technical v1; explicit cell backgrounds and Pi theme APIs remain supported.
 - **THEME-007:** invalid user overrides fall back safely.
