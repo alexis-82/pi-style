@@ -5,6 +5,10 @@ import { isHexColor } from "../../../shared/ansi.js";
 
 const teammateByRunId = new Map<string, string>();
 const colorByRunId = new Map<string, string>();
+// Roster identity by name: `send_message` targets, task owners and lifecycle
+// receipts publish a name but no run id. Same fail-closed rule as the run
+// index — only a color the owning runtime published is stored.
+const colorByName = new Map<string, string>();
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -17,16 +21,54 @@ function name(value: unknown): string | undefined {
 	return typeof value === "string" && NAME.test(value) ? value : undefined;
 }
 
+function bindRun(id: string | undefined, teammate: string | undefined, color: string | undefined): void {
+	if (!id || !teammate) return;
+	if (teammateByRunId.get(id) !== teammate) colorByRunId.delete(id);
+	teammateByRunId.set(id, teammate);
+	if (color !== undefined) colorByRunId.set(id, color);
+}
+
+function publishedColor(value: unknown): string | undefined {
+	return typeof value === "string" && isHexColor(value) ? value : undefined;
+}
+
 export function rememberTeammateRun(details: unknown, args?: Record<string, unknown>): void {
 	const data = record(details);
-	const id = runId(data?.agentId);
 	const teammate = name(data?.teammateName) ?? name(args?.name);
-	if (id && teammate) {
-		if (teammateByRunId.get(id) !== teammate) colorByRunId.delete(id);
-		teammateByRunId.set(id, teammate);
-	}
 	// Colors are authoritative only when published by the owning runtime.
-	if (id && teammate && typeof data?.color === "string" && isHexColor(data.color)) colorByRunId.set(id, data.color);
+	const color = publishedColor(data?.color);
+	bindRun(runId(data?.agentId), teammate, color);
+	if (teammate && color) colorByName.set(teammate, color);
+}
+
+/** Remember a lifecycle receipt (`teammate_status`/`teammate_release` details
+ *  carry `name` + `color` and the run ids that address the teammate). Steer and
+ *  get-result calls address runs that may have no Agent receipt in this session
+ *  branch (task execution runs, resumed/forked history), so every published run
+ *  id binds to the name here. */
+export function rememberTeammateIdentity(details: unknown): void {
+	const data = record(details);
+	const teammate = name(data?.name);
+	if (!teammate) return;
+	const color = publishedColor(data?.color);
+	if (color) colorByName.set(teammate, color);
+	bindRun(runId(data?.currentRunId), teammate, color);
+	bindRun(runId(data?.lastRunId), teammate, color);
+}
+
+/** Bind the run ids a task projection publishes (`attempts[].runId` +
+ *  `teammateName`, and the `runId` returned by `tasks_execute`) so legacy or
+ *  task-spawned runs resolve to their teammate in steer/get cards. */
+export function rememberTaskRuns(task: unknown, runIdHint?: unknown): void {
+	const data = record(task);
+	if (!data) return;
+	const attempts = Array.isArray(data.attempts) ? data.attempts : [];
+	for (const item of attempts) {
+		const attempt = record(item);
+		bindRun(runId(attempt?.runId), name(attempt?.teammateName), undefined);
+	}
+	const last = record(attempts.at(-1));
+	bindRun(runId(runIdHint), name(last?.teammateName), undefined);
 }
 
 export function rememberTeammateResult(agentId: unknown, text: string): void {
@@ -46,6 +88,13 @@ export function teammateForRun(agentId: unknown): string | undefined {
 export function teammateColorForRun(agentId: unknown): string | undefined {
 	const id = runId(agentId);
 	return id ? colorByRunId.get(id) : undefined;
+}
+
+/** Identity color for a teammate name. The name index is written in session
+ *  order, so a reused name with a new color keeps the latest admitted color. */
+export function teammateColorForName(teammate: unknown): string | undefined {
+	const value = name(teammate);
+	return value ? colorByName.get(value) : undefined;
 }
 
 /** Terminal run data written by the teammate-notification renderer (ADR 0012
@@ -109,6 +158,7 @@ export function settlementForRun(agentId: unknown): TeammateRunSettlement | unde
 export function resetTeammateRuns(): void {
 	teammateByRunId.clear();
 	colorByRunId.clear();
+	colorByName.clear();
 	settlementByRunId.clear();
 	handleByRunId.clear();
 }

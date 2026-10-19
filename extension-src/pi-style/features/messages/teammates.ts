@@ -26,6 +26,16 @@ const lines = (value: string, max = 2000): string[] =>
 const record = (value: unknown): Record<string, unknown> =>
 	value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
+/** Hanging dim detail block (same rule as the team tool cards): the first
+ *  non-blank row carries the `└─` branch and the rest align under it. */
+function hangingRows(theme: BoxTheme, rows: readonly string[], indent = ""): string[] {
+	const first = rows.findIndex((row) => row.trim() !== "");
+	return rows.map((row, index) => {
+		if (!row.trim()) return "";
+		return `${theme.fg("dim", `${indent}${index === first ? "└─" : "  "}`)} ${theme.fg("dim", row)}`;
+	});
+}
+
 // If the runtime omits a teammate color, highlight the reference with the
 // theme's generic accent instead of fabricating an identity-specific color.
 const styledTeammate = (
@@ -165,52 +175,25 @@ function reportHead(report: Report, theme: BoxTheme): string {
 		.join(" · ");
 	return `${outcomeGlyph(report.outcome, theme)} ${identity}${tail ? ` · ${tail}` : ""}`;
 }
-/** Collapsed link rows hang from a `└` (ADR 0012 §4); the hyperlink capability
- *  logic inside resultLinkRows is reused untouched. */
-function treeLinkRows(rows: string[]): string[] {
-	return rows.map((row, index) => (index === 0 && row.startsWith("  ") ? `  └ ${row.slice(2)}` : row));
-}
-/** Grouped head (ADR 0012 §4): `<glyph> N teammates finished · 2 ✓ · 1 ✗` —
- *  count segments render only when nonzero; zero counts are omitted. */
-function groupHead(reports: readonly Report[], theme: BoxTheme): string {
-	const count = (outcome: string): number => reports.filter((report) => report.outcome === outcome).length;
-	const completed = count("completed");
-	const failed = count("failed");
-	const stopped = count("stopped");
-	const glyph =
-		failed > 0
-			? theme.fg("error", teamEventGlyph("failed"))
-			: completed > 0
-				? theme.fg("success", teamEventGlyph("settled"))
-				: theme.fg("dim", teamEventGlyph("stopped"));
-	const segments = [
-		completed > 0 ? `${completed} ✓` : "",
-		failed > 0 ? `${failed} ✗` : "",
-		stopped > 0 ? `${stopped} ○` : "",
-	].filter(Boolean);
-	return `${glyph} ${reports.length} teammates finished${segments.length > 0 ? ` · ${segments.join(" · ")}` : ""}`;
-}
-function resultLinkRows(path: string, width: number, expanded: boolean): string[] {
+/** `result: result.md` (collapsed) or `result: <full path>` (expanded). Rows
+ *  carry the caller's indent so the card can hang them under its block. */
+function resultRows(path: string, width: number, expanded: boolean, indent = ""): string[] {
 	const rawPath = stripAnsi(path)
 		.replace(/\p{Cc}/gu, " ")
 		.trim();
 	const safePath = rawPath.length > 2000 ? `${rawPath.slice(0, 1999)}…` : rawPath;
+	const prefix = "result: ";
 	if (getCapabilities().hyperlinks) {
 		const label = expanded ? safePath : "result.md";
-		return [safeTruncateToWidth(`  ↗ ${hyperlink(label, pathToFileURL(path).href)}`, width)];
+		return [safeTruncateToWidth(`${indent}${prefix}${hyperlink(label, pathToFileURL(path).href)}`, width)];
 	}
-	if (!expanded)
-		return [
-			safeTruncateToWidth(
-				width < 16 ? `  ↗ ${clean(safePath, 120)}` : `  ↗ result.md · ${clean(safePath, 220)}`,
-				width,
-			),
-		];
-	const firstWidth = Math.max(1, width - 4);
+	if (!expanded) return [safeTruncateToWidth(`${indent}${prefix}${clean(safePath, 400)}`, width)];
+	// Chunk against the real remaining width so the indent never overflows.
+	const budget = Math.max(1, width - visibleWidth(indent) - prefix.length);
 	const chunks: string[] = [];
 	let chunk = "";
 	for (const character of safePath) {
-		if (chunk && visibleWidth(chunk + character) > firstWidth) {
+		if (chunk && visibleWidth(chunk + character) > budget) {
 			chunks.push(chunk);
 			chunk = "";
 		}
@@ -218,9 +201,25 @@ function resultLinkRows(path: string, width: number, expanded: boolean): string[
 	}
 	if (chunk) chunks.push(chunk);
 	if (chunks.length === 0) chunks.push("(empty path)");
-	return chunks.map((chunk, index) => `${index === 0 ? "  ↗ " : "    "}${chunk}`);
+	return chunks.map((value, index) => `${indent}${index === 0 ? prefix : " ".repeat(prefix.length)}${value}`);
 }
-
+/** One teammate card: head + hanging dim preview + its result path. No aggregate
+ *  header — a batch message simply renders one card per teammate (revised). */
+function reportCard(report: Report, width: number, expanded: boolean, theme: BoxTheme): string[] {
+	const head = reportHead(report, theme);
+	const result = report.resultFile ? resultRows(report.resultFile, width, expanded, "   ") : [];
+	if (!expanded) {
+		const preview = normalizePreview(report.preview) || clean(report.preview, 180);
+		return [head, theme.fg("dim", `└─ ${preview}`), ...result.map((row) => theme.fg("dim", row))];
+	}
+	const previewLines = report.preview ? lines(report.preview) : [];
+	const room = Math.max(0, 200 - 1 - result.length);
+	const budget = Math.max(0, room - Number(previewLines.length > room));
+	const rows = [head, ...hangingRows(theme, previewLines.slice(0, budget))];
+	if (previewLines.length > budget) rows.push(theme.fg("dim", `   … ${previewLines.length - budget} lines omitted`));
+	rows.push(...result.map((row) => theme.fg("dim", row)));
+	return rows;
+}
 export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 	pi.registerMessageRenderer("teammate-notification", (message, options, theme): Component => {
 		const data = record(message.details);
@@ -240,122 +239,16 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 			invalidate() {},
 			render(width) {
 				if (width < 8) return [];
-				const output: string[] = [];
-				if (reports.length === 1) {
-					const report = reports[0];
-					if (!report) return [];
-					output.push(reportHead(report, theme));
-					if (report.preview)
-						output.push(theme.fg("dim", `  └ ${normalizePreview(report.preview) || clean(report.preview, 180)}`));
-					if (report.resultFile)
-						output.push(
-							...treeLinkRows(resultLinkRows(report.resultFile, width, options.expanded)).map((line) =>
-								theme.fg("dim", line),
-							),
-						);
-					if (options.expanded) {
-						output.length = 0;
-						output.push(reportHead(report, theme));
-						const linkRows = report.resultFile ? resultLinkRows(report.resultFile, width, true) : [];
-						const previewLines = report.preview ? lines(report.preview) : [];
-						const fixedRows = 1 + linkRows.length + 1;
-						const previewBudget = Math.max(0, 200 - fixedRows - Number(previewLines.length > 200 - fixedRows));
-						output.push(...previewLines.slice(0, previewBudget).map((line) => `  ${line}`));
-						if (previewLines.length > previewBudget)
-							output.push(`  … ${previewLines.length - previewBudget} preview lines omitted`);
-						output.push(...linkRows);
-						output.push(`  outcome: ${report.outcome}`);
-					}
-				} else if (options.expanded) {
-					output.push(groupHead(reports, theme));
-					const reportLines = reports.map((report) => ({
-						report,
-						previewLines: lines(report.preview),
-						linkRows: report.resultFile ? resultLinkRows(report.resultFile, width, true) : [],
-					}));
-					// Critical rows do not compete with artifact paths or successful
-					// previews: retain every member header and one explanatory line per
-					// failed member before allocating any ordinary rows.
-					for (const item of reportLines) output.push(reportHead(item.report, theme));
-					for (const item of reportLines) {
-						if (item.report.outcome !== "failed") continue;
-						const name = `@${item.report.name.replace(/^@/, "")}`;
-						const diagnostic = item.previewLines[0] ?? "(no output)";
-						output.push(`  ${name}:`);
-						output.push(`    ${diagnostic}`);
-						if (item.previewLines.length > 1)
-							output.push(`  … ${item.previewLines.length - 1} failed preview lines omitted for ${name}`);
-					}
-					const ordinaryPreviewLines = reportLines
-						.filter((item) => item.report.outcome !== "failed")
-						.reduce((total, item) => total + item.previewLines.length, 0);
-					const artifactRows = reportLines.reduce((total, item) => total + item.linkRows.length, 0);
-					let budget = Math.max(0, 200 - output.length);
-					const needsOmissionNotice = artifactRows + ordinaryPreviewLines > budget;
-					if (needsOmissionNotice && budget > 0) budget--;
-					let omittedArtifactRows = 0;
-					let omittedPreviewRows = 0;
-					for (const item of reportLines) {
-						if (item.linkRows.length === 0) continue;
-						const take = Math.min(budget, item.linkRows.length);
-						output.push(...item.linkRows.slice(0, take));
-						budget -= take;
-						omittedArtifactRows += item.linkRows.length - take;
-					}
-					for (const item of reportLines) {
-						if (item.report.outcome === "failed") continue;
-						const name = `@${item.report.name.replace(/^@/, "")}`;
-						const take = Math.min(budget, item.previewLines.length);
-						output.push(
-							...item.previewLines
-								.slice(0, take)
-								.map((line, index) => `  ${index === 0 ? `${name}: ` : "    "}${line}`),
-						);
-						budget -= take;
-						omittedPreviewRows += item.previewLines.length - take;
-					}
-					if (needsOmissionNotice && output.length < 200)
-						output.push(
-							width < 24
-								? "… omitted"
-								: `  … omitted ${omittedArtifactRows} artifact path rows and ${omittedPreviewRows} noncritical preview lines to keep failure receipts visible`,
-						);
-				} else {
-					output.push(groupHead(reports, theme));
-					// Every failure keeps its own `└` reason row (loud); successes may
-					// compress to one name list (ADR 0012 §4).
-					for (const report of reports) {
-						if (report.outcome !== "failed") continue;
-						output.push(
-							theme.fg(
-								"error",
-								`  └ ${teamEventGlyph("failed")} @${report.name.replace(/^@/, "")} · ${clean(report.preview, 120)}`,
-							),
-						);
-					}
-					const successes = reports.filter((report) => report.outcome !== "failed");
-					if (successes.length > 0) {
-						const names = successes.map((report) => `@${report.name.replace(/^@/, "")}`);
-						const visibleNames = names.slice(0, 3);
-						const more = names.length - visibleNames.length;
-						output.push(
-							theme.fg(
-								"dim",
-								`  ├─ ${teamEventGlyph("settled")} ${visibleNames.join(", ")}${more > 0 ? ` … +${more} more` : ""}`,
-							),
-						);
-					}
-					if (reports[0]?.resultFile)
-						output.push(
-							...treeLinkRows(resultLinkRows(reports[0].resultFile, width, false)).map((line) => theme.fg("dim", line)),
-						);
-				}
-				if (options.expanded && output.length > 200) {
+				// One card per teammate; a batch message renders N cards with one blank
+				// row between them, so there is no aggregate "N teammates finished" row.
+				const cards = reports.map((report) => reportCard(report, width, options.expanded, theme));
+				const output = cards.flatMap((card, index) => (index === 0 ? card : ["", ...card]));
+				if (output.length > 200) {
 					const omitted = output.length - 199;
 					output.splice(199);
-					output.push(`… ${omitted} additional notification rows omitted`);
+					output.push(theme.fg("dim", width < 24 ? "… omitted" : `… ${omitted} rows omitted`));
 				}
-				return output.slice(0, options.expanded ? 200 : 4).map((line) => safeTruncateToWidth(line, width));
+				return output.slice(0, 200).map((line) => safeTruncateToWidth(line, width));
 			},
 		};
 	});
@@ -375,11 +268,10 @@ export function registerTeammateMessageRenderers(pi: ExtensionAPI): void {
 				const headLine = `${theme.fg("muted", teamEventGlyph("settled"))} Message from ${styledTeammate(theme, `@${from}`, data.color)}`;
 				if (!options.expanded)
 					return [safeTruncateToWidth(`${headLine}${hasBody ? theme.fg("dim", " (Ctrl+O to expand)") : ""}`, width)];
-				// Expanded: the identical head minus the hint, then the full body as
-				// `│ `-railed quote rows (2-space indent + rail on every physical
-				// line including blanks), verbatim after the clean/lines guards.
-				const rails = contentLines.map((line) => (line.trim() ? `  │ ${line}` : "  │"));
-				return [headLine, ...rails].map((line) => safeTruncateToWidth(line, width));
+				// Expanded: the identical head minus the hint, then the body as a
+				// hanging dim block (no rail glyph), verbatim after the clean/lines
+				// guards.
+				return [headLine, ...hangingRows(theme, contentLines)].map((line) => safeTruncateToWidth(line, width));
 			},
 		};
 	});

@@ -12,12 +12,15 @@ import type { BoxedToolDefinition, BoxedToolResult } from "./shared.js";
 import { formatDuration, formatTokens, normalizeModelLabel, normalizePreview } from "./shared.js";
 import {
 	hasTeammateRunHandle,
+	rememberTaskRuns,
+	rememberTeammateIdentity,
 	rememberTeammateResult,
 	rememberTeammateRun,
 	rememberTeammateRunHandle,
 	settlementForRun,
 	settleTeammateRun,
 	type TeammateRunSettlement,
+	teammateColorForName,
 	teammateColorForRun,
 	teammateForRun,
 } from "./team-run-labels.js";
@@ -27,9 +30,12 @@ export const TEAM_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"get_subagent_result",
 	"steer_subagent",
 	"send_message",
+	"peer_sessions",
+	"peer_send",
+	"peer_activity",
 	"teammate_status",
 	"teammate_release",
-	"teammate_retire",
+	"teammate_shutdown",
 	"list_models",
 	"tasks_create",
 	"tasks_list",
@@ -40,6 +46,7 @@ export const TEAM_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"tasks_output",
 	"tasks_stop",
 	// Legacy names remain presentation-only aliases for saved sessions.
+	"teammate_retire",
 	"team_task_create",
 	"team_task_update",
 	"team_task_get",
@@ -100,6 +107,22 @@ function rows(lines: () => string[], max = 8): Component {
 }
 function simple(text: string, theme: BoxTheme): Component {
 	return rows(() => [theme.fg("dim", text)], 1);
+}
+/** Expanded team detail text is dim; a row the producer already tinted
+ *  (error/warning checks, artifact links) keeps its emphasis. */
+const dimPlain = (theme: BoxTheme, line: string): string =>
+	line.trim() && !line.includes("\x1b[") ? theme.fg("dim", line) : line;
+
+/** Hanging detail block: the first non-blank row carries the dim `└─` branch and
+ *  every later row aligns under it. Blank rows stay blank. */
+function hangingBody(theme: BoxTheme, rows: readonly string[], indent = ""): string[] {
+	const first = rows.findIndex((row) => row.trim() !== "");
+	return rows.map((row, index) => {
+		const text = row.replace(/\s+$/, "");
+		if (!text.trim()) return "";
+		const branch = theme.fg("dim", `${indent}${index === first ? "└─" : "  "}`);
+		return `${branch} ${theme.fg("dim", text)}`;
+	});
 }
 function agentDetail(args: Record<string, unknown>, theme: BoxTheme, result?: BoxedToolResult): string {
 	const data = details(result ?? {});
@@ -220,11 +243,13 @@ function agentLine(
 		for (let i = 0; i < max; i++) {
 			const event = events[i] ?? { glyph: teamEventGlyph("running"), color: "muted" };
 			const member = members[i];
+			// Tree glyphs are structure, never emphasis: they stay dim while the
+			// status glyph and the identity keep their tints.
 			lines.push(
-				`${i === members.length - 1 ? "└─" : "├─"} ${theme.fg(event.color, event.glyph)} ${member ? memberDetail(member, expanded) : ""}${settlementTail(event.settlement)}`,
+				`${theme.fg("dim", i === members.length - 1 ? "└─" : "├─")} ${theme.fg(event.color, event.glyph)} ${member ? memberDetail(member, expanded) : ""}${settlementTail(event.settlement)}`,
 			);
 		}
-		if (max < members.length) lines.push(`   … ${members.length - max} more · Ctrl+O to expand`);
+		if (max < members.length) lines.push(theme.fg("dim", `   … ${members.length - max} more · Ctrl+O to expand`));
 	}
 	for (const member of members) {
 		const foreground = member.effectiveMode === "foreground";
@@ -339,8 +364,8 @@ export const agentTool: BoxedToolDefinition = {
 				const omitted = Math.max(0, outputLines.length - detailLimit);
 				return [
 					...(critical ? [theme.fg(failed ? "error" : "warning", `└─ ${critical}`)] : []),
-					...outputLines.slice(0, detailLimit),
-					...(omitted ? [`… ${omitted} diagnostic lines omitted`] : []),
+					...outputLines.slice(0, detailLimit).map((line) => dimPlain(theme, line)),
+					...(omitted ? [theme.fg("dim", `… ${omitted} diagnostic lines omitted`)] : []),
 				];
 			}, 10000);
 		if (validationReceipt) return rows(() => [theme.fg("warning", `└─ RECEIPT: ${clean(output, 180)}`)], 1);
@@ -355,48 +380,91 @@ export const agentTool: BoxedToolDefinition = {
 	},
 };
 
-function teammateLabel(args: Record<string, unknown>, key: string, theme: BoxTheme): string {
+function teammateLabel(args: Record<string, unknown>, key: "target" | "agent_id", theme: BoxTheme): string {
+	if (key === "agent_id") {
+		// A run id is an address, not an identity: resolve it to the admitted
+		// teammate name. An unknown run keeps a short id so the value is never
+		// mistaken for a teammate reference (Pi still receives the full id).
+		const id = typeof args[key] === "string" ? args[key] : undefined;
+		const resolved = teammateForRun(id);
+		if (resolved)
+			return styledTeammate(theme, `@${resolved}`, teammateColorForRun(id) ?? teammateColorForName(resolved));
+		const compact = short(id);
+		// No `@`: an unresolved run id must never read as a teammate reference.
+		// UUIDs clip to a stable prefix so the value still identifies the run.
+		const label = compact.length > 12 ? `${compact.slice(0, 8)}…` : compact;
+		return label ? theme.fg("muted", label) : "teammate";
+	}
 	const value = short(args[key]);
-	return value
-		? key === "target" && value === "lead"
-			? "lead"
-			: styledTeammate(theme, `@${value}`, key === "agent_id" ? teammateColorForRun(args[key]) : undefined)
-		: "teammate";
+	if (!value) return "teammate";
+	if (value === "lead") return "lead";
+	return styledTeammate(theme, `@${value}`, teammateColorForName(value));
 }
-/** Shared minimal message card (ADR 0012 §9). The collapsed line answers only
- *  "who → whom"; the body lives entirely behind expansion; receipts are dropped
- *  because the settled glyph itself is the receipt (success quiet, failure
- *  loud). No envelope glyph exists anywhere. */
+/** Minimum-disclosure card shared by team messages and peer sends (ADR 0012
+ *  §9): one head line, the body entirely behind expansion, receipts dropped
+ *  because the settled glyph is the receipt. The body uses the thinking-quote
+ *  rail language (2-space indent + `│ ` on every line including blanks). */
+function cardLines(
+	theme: BoxTheme,
+	options: {
+		head: string;
+		body?: string | undefined;
+		failure?: string | undefined;
+		failurePrefix?: string | undefined;
+		expanded: boolean;
+	},
+): string[] {
+	const glyph = options.failure
+		? theme.fg("error", teamEventGlyph("failed"))
+		: theme.fg("muted", teamEventGlyph("settled"));
+	const body = options.body?.trim() ? options.body : undefined;
+	const headLine = options.failure
+		? `${glyph} ${options.head} · ${options.failurePrefix ?? ""}${options.failure}`
+		: `${glyph} ${options.head}`;
+	if (!options.expanded)
+		return [`${headLine}${body && !options.failure ? theme.fg("dim", " (Ctrl+O to expand)") : ""}`];
+	// Expanded body: no rail glyph — a hanging dim block (first row `└─`, the rest
+	// aligned) matches every other team card.
+	return [headLine, ...(body ? hangingBody(theme, physicalLines(body)) : [])];
+}
+/** Producers may already spell out the failure (`Message not sent: …`); the
+ *  card supplies its own prefix, so drop a leading duplicate instead of printing
+ *  `not sent: Message not sent: …` (fail-closed: an all-prefix reason stays). */
+function trimReceiptPrefix(reason: string, prefix: string): string {
+	const label = prefix.trim().replace(/:$/, "");
+	if (!reason) return "failed";
+	if (!label) return reason;
+	const pattern = new RegExp(`^(?:message\\s+)?${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:?\\s*`, "i");
+	return reason.replace(pattern, "").trim() || reason;
+}
+
+function cardHeight(body: string | undefined, expanded: boolean): number {
+	return expanded && body?.trim() ? 1 + physicalLines(body).length : 1;
+}
 function messageTool(
 	key: "target" | "agent_id",
 	head: (label: string) => string,
 	failurePrefix: string,
 	accepted: RegExp,
 ): BoxedToolDefinition {
-	// The thinking-quote rail language, not tree rows: 2-space indent + `│ ` on
-	// every physical line including blanks (ADR 0012 §9).
-	const quoteRows = (body: string): string[] =>
-		physicalLines(body).map((line) => (line.trim() ? `  │ ${line.replace(/\s+$/, "")}` : "  │"));
 	return {
 		call: (args, theme, context) => {
 			const label = teammateLabel(args, key, theme);
-			const hasBody = typeof args.message === "string" && args.message.trim() !== "";
+			const body = typeof args.message === "string" ? args.message : undefined;
 			// The failure state is written by the result renderer; reading it inside
 			// the render closure keeps the one-line card current (ADR 0012 §9).
-			const cardLines = (expanded: boolean): string[] => {
-				const failure =
-					typeof context.state.teamMessageFailure === "string" ? context.state.teamMessageFailure : undefined;
-				const glyph = failure
-					? theme.fg("error", teamEventGlyph("failed"))
-					: theme.fg("muted", teamEventGlyph("settled"));
-				const headLine = failure ? `${glyph} ${head(label)} · ${failurePrefix}${failure}` : `${glyph} ${head(label)}`;
-				if (!expanded) return [`${headLine}${hasBody && !failure ? theme.fg("dim", " (Ctrl+O to expand)") : ""}`];
-				const rails = hasBody && typeof args.message === "string" ? quoteRows(args.message) : [];
-				return [headLine, ...rails];
-			};
-			if (!context.expanded) return rows(() => cardLines(false), 1);
-			const railCount = hasBody && typeof args.message === "string" ? physicalLines(args.message).length : 0;
-			return rows(() => cardLines(true), 1 + railCount);
+			const render = (expanded: boolean): string[] =>
+				cardLines(theme, {
+					head: head(label),
+					...(body !== undefined ? { body } : {}),
+					...(typeof context.state.teamMessageFailure === "string"
+						? { failure: context.state.teamMessageFailure }
+						: {}),
+					failurePrefix,
+					expanded,
+				});
+			if (!context.expanded) return rows(() => render(false), 1);
+			return rows(() => render(true), cardHeight(body, true));
 		},
 		result: (result, options, _theme, context) => {
 			if (options.isPartial) return empty;
@@ -404,7 +472,7 @@ function messageTool(
 			// Success stays quiet; a failure re-renders the call card loud via the
 			// stored reason (ADR 0012 §9). Malformed text still degrades to a
 			// cleaned plain reason — nothing is lost verbatim beyond the budget.
-			if (!accepted.test(text)) context.state.teamMessageFailure = clean(text, 200) || "failed";
+			if (!accepted.test(text)) context.state.teamMessageFailure = trimReceiptPrefix(clean(text, 200), failurePrefix);
 			return empty;
 		},
 	};
@@ -418,42 +486,110 @@ export const sendMessageTool = messageTool(
 );
 export const steerTool = messageTool("agent_id", (label) => `Steer to ${label}`, "", /^Steering accepted/);
 
-// get_subagent_result returns a formatted text record, not structured details.
-// A malformed or changed record remains accessible verbatim when expanded.
+const peerLabel = (peerSessionId: unknown): string => {
+	const value = clean(peerSessionId, 64);
+	return value ? `peer ${value.slice(0, 8)}` : "peer";
+};
+/** Peer surfaces (presentation-only): independent `pi` sessions found in the
+ *  configured peer scope. `peer_send` reuses the minimal message card; its body
+ *  is untrusted plain text and only ever renders behind expansion. */
+export const peerSessionsTool: BoxedToolDefinition = {
+	call: (_args, theme) => rows(() => [`${theme.fg("muted", teamEventGlyph("settled"))} Peer sessions`], 1),
+	result(result, options, theme) {
+		if (options.isPartial) return empty;
+		const text = textResult(result);
+		const value = parseJson(text);
+		if (!Array.isArray(value)) return rows(() => [theme.fg("dim", `└ ${clean(text, 200) || "no peers"}`)], 1);
+		const peers = value.filter(isRecord);
+		if (peers.length === 0) return rows(() => [theme.fg("dim", "└ no peer sessions")], 1);
+		const limit = options.expanded ? peers.length : 3;
+		const shown = peers.slice(0, limit);
+		const lines = shown.map((peer, index) => {
+			const name = clean(peer.displayName, 64) || clean(peer.peerSessionId, 64) || "peer";
+			const facets = [clean(peer.status, 24), clean(peer.activity, 120)].filter(Boolean).join(" · ");
+			return `${theme.fg("dim", index === 0 ? "└─" : "  ")} ${theme.fg("text", name)}${facets ? ` ${theme.fg("dim", facets)}` : ""}`;
+		});
+		if (peers.length > shown.length)
+			lines.push(theme.fg("dim", `   … ${peers.length - shown.length} more · Ctrl+O to expand`));
+		return rows(() => lines, limit + 1);
+	},
+};
+
+export const peerSendTool: BoxedToolDefinition = {
+	call(args, theme, context) {
+		const head = `Peer message to ${theme.fg("muted", peerLabel(args.peerSessionId))}`;
+		const body = typeof args.text === "string" ? args.text : undefined;
+		const render = (expanded: boolean): string[] =>
+			cardLines(theme, {
+				head,
+				...(body !== undefined ? { body } : {}),
+				...(typeof context.state.teamPeerFailure === "string" ? { failure: context.state.teamPeerFailure } : {}),
+				expanded,
+			});
+		if (!context.expanded) return rows(() => render(false), 1);
+		return rows(() => render(true), cardHeight(body, true));
+	},
+	result(result, options, _theme, context) {
+		if (options.isPartial) return empty;
+		// A refused/unavailable/expired receipt is a loud failure; delivery stays quiet.
+		const text = textResult(result);
+		if (!/^Peer message (queued|held|delivered)/.test(text))
+			context.state.teamPeerFailure = clean(text, 200) || "failed";
+		return empty;
+	},
+};
+
+export const peerActivityTool: BoxedToolDefinition = {
+	call: (_args, theme) => rows(() => [`${theme.fg("muted", teamEventGlyph("settled"))} Peer activity`], 1),
+	result(result, options, theme) {
+		if (options.isPartial) return empty;
+		const text = clean(textResult(result), options.expanded ? 2000 : 200) || "updated";
+		return rows(() => [theme.fg("dim", `└ ${text}`)], 1);
+	},
+};
+
+// get_subagent_result renders the formatted text record; pi-teams also publishes
+// structured `details`, which keeps the run identity/color index current. A
+// malformed or changed record remains accessible verbatim when expanded.
 export const getAgentResultTool: BoxedToolDefinition = {
 	call(args, theme, context) {
 		return rows(() => {
-			const teammate = teammateForRun(args.agent_id);
-			const label = typeof teammate === "string" ? `@${teammate}` : short(args.agent_id) || "teammate";
-			const styledLabel = teammate ? styledTeammate(theme, label, teammateColorForRun(args.agent_id)) : label;
+			const label = teammateLabel(args, "agent_id", theme);
 			// `◌ Get result @name` while waiting; `●` once the result exists (§8).
 			const glyph = theme.fg("muted", teamEventGlyph(isResultSeen(context.state) ? "settled" : "running"));
-			return [`${glyph} Get result ${styledLabel}${args.wait === true ? " · wait" : ""}`];
+			return [`${glyph} Get result ${label}${args.wait === true ? " · wait" : ""}`];
 		}, 1);
 	},
 	result(result, options, theme, context) {
 		markResultSeen(context.state);
 		if (options.isPartial) return empty;
 		const text = stripAnsi(rawText(result));
-		const admitted = teammateForRun(context.args.agent_id);
+		if (result.details) rememberTeammateRun(result.details);
 		rememberTeammateResult(context.args.agent_id, text);
-		const teammate = /^Teammate: (@[A-Za-z0-9][A-Za-z0-9._-]{0,63})(?=\s|$)/m.exec(text)?.[1];
-		const color = teammate === `@${admitted}` ? teammateColorForRun(context.args.agent_id) : undefined;
 		if (options.expanded)
 			return rows(
 				() =>
-					text.split("\n").map((line) => {
-						const prefix = `Teammate: ${teammate}`;
-						return teammate && line.startsWith(prefix)
-							? `Teammate: ${styledTeammate(theme, teammate, color)}${clean(line.slice(prefix.length), 2000)}`
-							: clean(line, 2000);
-					}),
+					hangingBody(
+						theme,
+						text
+							.split("\n")
+							// The head already names the teammate; only the run id stays, so a
+							// steer/get call can still address the exact run.
+							.filter((line) => !line.startsWith("Teammate: "))
+							.map((line) => clean(line, 2000)),
+					),
 				10000,
 			);
 		// Collapsed: the shared preview collapse (§2) parses the record header as
-		// labeled fields and drops `Type:`/`Teammate:` noise so `@name` never
-		// prints twice (§8). Malformed records fall back to cleaned verbatim lines.
-		const preview = normalizePreview(text, { dropFields: ["Type", "Teammate"] }) || clean(text, 160) || "(no output)";
+		// labeled fields and drops identity/type noise so `@name` and the raw run id
+		// never print twice (§8). Malformed records fall back to cleaned verbatim
+		// lines. The run id stays available on expansion.
+		const preview =
+			normalizePreview(text, {
+				dropFields: ["Type", "Teammate", "Agent", "Description", "Model", "Tool uses", "Duration"],
+			}) ||
+			clean(text, 160) ||
+			"(no output)";
 		return rows(() => [theme.fg("dim", `└ ${preview}`)], 1);
 	},
 };
@@ -469,6 +605,60 @@ function parseJson(text: string): unknown {
 	}
 }
 const taskCode = (task: Task): string => clean(task.code ?? task.id, 32);
+/** Status-aware task identity (mirrors pi-teams `taskIdentity`): a planned
+ *  pending task names its assignee, a terminal task keeps the teammate that
+ *  actually ran it, and everything else prefers the current owner. */
+function taskIdentityName(task: Task): string | undefined {
+	const attempts = Array.isArray(task.attempts) ? task.attempts : [];
+	const latest = attempts.at(-1);
+	const latestName = isRecord(latest) && typeof latest.teammateName === "string" ? latest.teammateName : undefined;
+	const assignee = short(task.assignee) || undefined;
+	const owner = short(task.owner) || undefined;
+	const status = clean(task.status, 24);
+	if (status === "completed" || status === "cancelled") return latestName ?? assignee ?? owner;
+	if (status === "pending") return assignee;
+	return owner ?? assignee ?? latestName;
+}
+/** Task status glyph — identical to the pi-teams table so the tool card and
+ *  the inline Tasks widget never disagree: `○` open, `◌` blocked, `◐` claimed,
+ *  `◉` live run, `◆` review, `✓`/`⊘`/`✗`/`■` terminal. */
+function taskGlyph(task: Task, theme: BoxTheme): string {
+	const status = clean(task.status, 24);
+	const latest = Array.isArray(task.attempts) ? task.attempts.at(-1) : undefined;
+	const latestStatus = isRecord(latest) ? clean(latest.status, 16) : "";
+	if (status === "completed") return theme.fg("success", "✓");
+	if (status === "cancelled") return theme.fg("dim", "⊘");
+	if (latestStatus === "running") return theme.fg("accent", "◉");
+	if (latestStatus === "failed") return theme.fg("error", "✗");
+	if (latestStatus === "stopped") return theme.fg("dim", "■");
+	if (status === "in_progress") return theme.fg("accent", "◐");
+	if (status === "in_review") return theme.fg("warning", "◆");
+	if (Array.isArray(task.blockedBy) && task.blockedBy.length > 0) return theme.fg("warning", "◌");
+	return theme.fg("muted", "○");
+}
+/** `◐ T3 @owner Title` — the shared task row used by the `tasks_list` card. */
+function taskRowLine(task: Task, theme: BoxTheme): string {
+	const who = taskIdentityName(task);
+	const identity = who ? styledTeammate(theme, `@${who}`, teammateColorForName(who)) : theme.fg("muted", "unassigned");
+	const blockers = (Array.isArray(task.blockedBy) ? task.blockedBy : []).map((item) => clean(item, 24)).filter(Boolean);
+	const blocked = blockers.length > 0 ? ` ${theme.fg("warning", `← ${blockers.join(",")}`)}` : "";
+	return `${taskGlyph(task, theme)} ${theme.fg("dim", taskCode(task))} ${identity} ${clean(task.title, 300)}${blocked}`;
+}
+/** `1 in progress, 5 open` — the board counts the `tasks_list` head lifts. */
+function taskCountSegments(tasks: readonly Task[]): string {
+	const count = (status: string) => tasks.filter((task) => clean(task.status, 24) === status).length;
+	const counts = [
+		[count("completed"), "done"],
+		[count("in_progress"), "in progress"],
+		[count("pending"), "open"],
+		[count("in_review"), "in review"],
+		[count("cancelled"), "cancelled"],
+	] as const;
+	return counts
+		.filter(([value]) => value > 0)
+		.map(([value, label]) => `${value} ${label}`)
+		.join(", ");
+}
 function taskSummary(task: Task, theme: BoxTheme): string {
 	const parts = [taskCode(task), clean(task.title, 90), clean(task.status, 24)];
 	const owner = short(task.owner ?? task.assignee);
@@ -554,11 +744,11 @@ function failedCheckRows(outcome: unknown, theme: BoxTheme): string[] {
 
 /** Clip one artifact path for a delta-card row (ADR 0013 §3); real absolute
  *  paths additionally hyperlink via the existing capability logic. */
-function artifactRow(path: string, branch: string, theme: BoxTheme): string {
+function artifactRow(path: string, theme: BoxTheme): string {
 	const clipped = compactToolPath(path, 48);
 	const link =
 		path.startsWith("/") && getCapabilities().hyperlinks ? hyperlink(clipped, pathToFileURL(path).href) : clipped;
-	return theme.fg("dim", `  ${branch} ↗ ${link}`);
+	return theme.fg("dim", `  artifact: ${link}`);
 }
 
 /** Outcome formatter for delta cards (ADR 0013 §2/§3) — the single place task
@@ -575,7 +765,7 @@ function outcomeLines(outcome: unknown, theme: BoxTheme, expanded = false): stri
 			: failedCheckRows(outcome, theme);
 	}
 	const lines: string[] = [];
-	const rail = (text: string): string => theme.fg("dim", text.trim() ? `  │ ${text.replace(/\s+$/, "")}` : "  │");
+	const rail = (text: string): string => (text.trim() ? theme.fg("dim", `  ${text.replace(/\s+$/, "")}`) : "");
 	if (typeof outcome.summary === "string") {
 		const physical = physicalLines(outcome.summary);
 		if (physical.length > 0)
@@ -584,8 +774,7 @@ function outcomeLines(outcome: unknown, theme: BoxTheme, expanded = false): stri
 	const artifacts = Array.isArray(outcome.artifacts)
 		? outcome.artifacts.map((path) => clean(path, 500)).filter(Boolean)
 		: [];
-	for (const [index, path] of artifacts.entries())
-		lines.push(artifactRow(path, index === artifacts.length - 1 ? "└─" : "├─", theme));
+	for (const path of artifacts) lines.push(artifactRow(path, theme));
 	const verification = Array.isArray(outcome.verification) ? outcome.verification.filter(isRecord) : [];
 	for (const item of verification) {
 		const failed = item.outcome === "failed";
@@ -711,24 +900,43 @@ function parseModelRows(
 	return { rows, shown: { n, m } };
 }
 
+/** Call-line label for a team tool. `tasks_list` counts are lifted into the
+ *  head by the result renderer (the same closure-state pattern the message card
+ *  uses), so the head answers "what board" in one line. */
+function teamToolLabel(name: string, args: Record<string, unknown>, counts = ""): string {
+	const labels: Record<string, string> = {
+		tasks_create: `Create task · ${clean(args.title, 80)}`,
+		tasks_list: `Tasks${args.status ? ` · ${short(args.status)}` : ""}${counts ? ` (${counts})` : ""}`,
+		tasks_get: `Task ${short(args.id)}`,
+		tasks_update: `Update ${short(args.id)}${args.status ? ` · ${short(args.status)}` : ""}`,
+		tasks_cancel: `Cancel ${short(args.id)}`,
+		tasks_execute: `Execute ${short(args.id)} → ${short(args.name) || short(args.type)}`,
+		tasks_output: `Output ${short(args.id)}`,
+		tasks_stop: `Stop ${short(args.id)}`,
+		teammate_status: `Teammate status @${clean(args.name, 64)}`,
+		teammate_release: `Release @${clean(args.name, 64)}`,
+		teammate_shutdown: `Shutdown @${clean(args.name, 64)}`,
+		list_models: `Models${args.query ? ` · ${clean(args.query, 60)}` : ""}${counts ? ` · ${counts}` : ""}`,
+	};
+	return labels[name] ?? name;
+}
+
 function teamTool(name: string): BoxedToolDefinition {
 	return {
-		call(args, theme) {
-			const labels: Record<string, string> = {
-				tasks_create: `Create task · ${clean(args.title, 80)}`,
-				tasks_list: `Tasks${args.status ? ` · ${short(args.status)}` : ""}`,
-				tasks_get: `Task ${short(args.id)}`,
-				tasks_update: `Update ${short(args.id)}${args.status ? ` · ${short(args.status)}` : ""}`,
-				tasks_cancel: `Cancel ${short(args.id)}`,
-				tasks_execute: `Execute ${short(args.id)} → ${short(args.name) || short(args.type)}`,
-				tasks_output: `Output ${short(args.id)}`,
-				tasks_stop: `Stop ${short(args.id)}`,
-				teammate_status: `Teammate status @${short(args.name)}`,
-				teammate_release: `Release @${short(args.name)}`,
-				teammate_retire: `Retire @${short(args.name)}`,
-				list_models: `Models${args.query ? ` · ${clean(args.query, 60)}` : ""}`,
-			};
-			return rows(() => [`${theme.fg("muted", teamEventGlyph("settled"))} ${labels[name] ?? name}`], 1);
+		call(args, theme, context) {
+			// The head is built inside the render closure so the counts published by
+			// the result renderer appear on the next paint (no second header line).
+			return rows(() => {
+				// Counts published by the result renderer land on this paint, so the
+				// card never prints a second header line.
+				const counts =
+					name === "tasks_list"
+						? clean(context.state.teamTaskCounts, 120)
+						: name === "list_models"
+							? clean(context.state.teamModelCounts, 24)
+							: "";
+				return [`${theme.fg("muted", teamEventGlyph("settled"))} ${teamToolLabel(name, args, counts)}`];
+			}, 1);
 		},
 		result(result, options, theme, context) {
 			if (options.isPartial) return empty;
@@ -742,17 +950,31 @@ function teamTool(name: string): BoxedToolDefinition {
 				receipt.changed === false ||
 				(isRecord(value) && (typeof value.error === "string" || value.recovery !== undefined));
 			const prefix = error ? theme.fg("error", "ERROR · ") : theme.fg("dim", "└─ ");
+			// Task projections publish the run ids that executed each attempt; binding
+			// them keeps steer/get receipts addressable even when no Agent receipt for
+			// that run exists in this session branch.
+			if (Array.isArray(value)) for (const item of value) rememberTaskRuns(item);
+			else if (isRecord(value)) {
+				rememberTaskRuns(value);
+				if (isRecord(value.task)) rememberTaskRuns(value.task, value.runId);
+			}
 			if (name === "tasks_list" && Array.isArray(value)) {
-				const limit = options.expanded ? value.length : 3;
-				const list = value
-					.slice(0, limit)
-					.filter(isRecord)
-					.map((task, i) => `${i === Math.min(value.length, limit) - 1 ? "└─" : "├─"} ${taskSummary(task, theme)}`);
-				if (value.length > limit) list.push(`   … ${value.length - limit} more · Ctrl+O to expand`);
+				const tasks = value.filter(isRecord);
+				if (tasks.length === 0) return empty;
+				context.state.teamTaskCounts = taskCountSegments(tasks);
+				const limit = options.expanded ? tasks.length : 3;
+				const shown = tasks.slice(0, limit);
+				// Hanging card: the first row carries the dim branch, the rest align
+				// under it. Status is carried by the glyph, not a repeated word.
+				const list = shown.map(
+					(task, index) => `${theme.fg("dim", index === 0 ? "└─" : "  ")} ${taskRowLine(task, theme)}`,
+				);
+				if (tasks.length > shown.length) list.push(theme.fg("dim", `   … ${tasks.length - shown.length} more`));
 				return rows(() => list, limit + 1);
 			}
 			if (isRecord(value) && (typeof value.title === "string" || typeof value.status === "string")) {
-				if (name === "tasks_get" && options.expanded) return rows(() => taskDetail(value, theme), 10000);
+				if (name === "tasks_get" && options.expanded)
+					return rows(() => taskDetail(value, theme).map((line) => dimPlain(theme, line)), 10000);
 				// Mutation results answer "what changed" (ADR 0013 §1); tasks_get
 				// reads and unmapped/error results keep the full summary line.
 				const delta = !error ? taskDelta(name, value, theme) : undefined;
@@ -760,7 +982,11 @@ function teamTool(name: string): BoxedToolDefinition {
 					const lines = [`${prefix}${taskSummary(value, theme)}`];
 					if (value.outcome) lines.push(...outcomeLines(value.outcome, theme, options.expanded));
 					if (options.expanded && typeof value.description === "string")
-						lines.push(...value.description.split("\n").map((line) => `  ${clean(line, 2000)}`));
+						lines.push(
+							...value.description
+								.split("\n")
+								.map((line) => (line.trim() ? theme.fg("dim", `  ${clean(line, 2000)}`) : "")),
+						);
 					return rows(() => lines, 8);
 				}
 				// Delta rows hang from the dash-less `└` card family (ADR 0013 §1);
@@ -773,7 +999,11 @@ function teamTool(name: string): BoxedToolDefinition {
 				if (options.expanded) {
 					if (value.outcome) lines.push(...outcomeLines(value.outcome, theme, true));
 					if (typeof value.description === "string")
-						lines.push(...value.description.split("\n").map((line) => `  ${clean(line, 2000)}`));
+						lines.push(
+							...value.description
+								.split("\n")
+								.map((line) => (line.trim() ? theme.fg("dim", `  ${clean(line, 2000)}`) : "")),
+						);
 				}
 				return rows(() => lines, options.expanded ? 10000 : 8);
 			}
@@ -795,40 +1025,49 @@ function teamTool(name: string): BoxedToolDefinition {
 			if (name === "tasks_output" && isRecord(value)) {
 				const attempt = isRecord(value.attempt) ? value.attempt : {};
 				const output = typeof value.result === "string" ? value.result : "";
-				const status = clean(attempt.status ?? value.status, 32);
+				const status = clean(attempt.status ?? value.status, 32) || "attempt status unavailable";
+				const who = clean(attempt.teammateName, 64);
+				// One status line: the failure reason joins it instead of printing a
+				// second `ERROR` row (the head already says which attempt it was).
+				const reason =
+					typeof value.error === "string"
+						? clean(value.error, options.expanded ? 2000 : 240)
+						: context.isError
+							? "failed"
+							: "";
 				const lines = [
-					`${prefix}${status || "attempt status unavailable"}${attempt.teammateName ? ` · @${clean(attempt.teammateName, 64)}` : ""}`,
+					`${theme.fg("dim", "└─ ")}${theme.fg("text", status)}${
+						who ? ` · ${styledTeammate(theme, `@${who}`, teammateColorForName(who))}` : ""
+					}${reason ? ` · ${theme.fg("error", `error: ${reason}`)}` : ""}`,
 				];
-				if (typeof value.error === "string")
-					lines.push(theme.fg("error", `  ERROR ${clean(value.error, options.expanded ? 2000 : 240)}`));
 				if (output) {
-					if (options.expanded) lines.push(...output.split("\n").map((line) => `  ${clean(line, 2000)}`));
+					if (options.expanded)
+						lines.push(
+							...output.split("\n").map((line) => (line.trim() ? theme.fg("dim", `   ${clean(line, 2000)}`) : "")),
+						);
 					else
 						lines.push(
 							theme.fg(
 								"dim",
-								`  └ ${normalizePreview(output, { dropFields: ["Status", "Teammate"] }) || clean(output, 180)}`,
+								`   ${normalizePreview(output, { dropFields: ["Status", "Teammate"] }) || clean(output, 180)}`,
 							),
 						);
 				}
 				return rows(() => lines, options.expanded ? 10000 : 3);
 			}
 			if (name === "tasks_stop" && isRecord(value)) {
-				const task = isRecord(value.task) ? value.task : { id: context.args.id };
-				const code = taskCode(task);
 				const stopped = value.stopped === true;
-				const text = stopped ? `${code} attempt stop requested`.trim() : "no running attempt";
+				const text = stopped ? "attempt stop requested" : "no running attempt";
 				const line = error ? `${prefix}${text}` : stopped ? `${theme.fg("dim", "└ ")}${text}` : text;
 				return rows(() => [line], 1);
 			}
 			if (name === "list_models" && !error) {
 				const parsed = parseModelRows(raw);
 				if (parsed) {
-					const query = clean(context.args.query, 60);
-					const shown = parsed.shown ? ` · ${parsed.shown.n}/${parsed.shown.m}` : "";
-					const header = `${theme.fg("muted", teamEventGlyph("settled"))} Models${query ? ` · ${query}` : ""}${shown}`;
+					// `N of M` lifts into the call head, so the card prints one header.
+					context.state.teamModelCounts = parsed.shown ? `${parsed.shown.n}/${parsed.shown.m}` : "";
 					// Collapsed rows show the id tail; expanded rows and the single-match
-					// `└` row keep the canonical full ref — the copyable payload (§6).
+					// row keep the canonical full ref — the copyable payload (§6).
 					const label = (row: { ref: string; display?: string }): string => {
 						const full = options.expanded || parsed.rows.length === 1;
 						const id = full ? row.ref : normalizeModelLabel(row.ref);
@@ -838,19 +1077,17 @@ function teamTool(name: string): BoxedToolDefinition {
 								: "";
 						return `${id}${display}`;
 					};
+					// Hanging rows: the first carries the branch, the rest align under it.
 					const bodyRows = parsed.rows.map((row, index) =>
-						theme.fg("dim", `${index === parsed.rows.length - 1 ? "└─" : "├─"} ${label(row)}`),
+						theme.fg("dim", `${index === 0 ? "└─" : "  "} ${label(row)}`),
 					);
 					const count = options.expanded ? bodyRows.length : 4;
 					return rows(
 						() => [
-							header,
 							...bodyRows.slice(0, count),
-							...(bodyRows.length > count
-								? [theme.fg("dim", `   … ${bodyRows.length - count} more · Ctrl+O to expand`)]
-								: []),
+							...(bodyRows.length > count ? [theme.fg("dim", `   … ${bodyRows.length - count} more`)] : []),
 						],
-						count + 1,
+						count,
 					);
 				}
 				// Unparseable results keep the verbatim fail-closed fallback (§6).
@@ -859,22 +1096,51 @@ function teamTool(name: string): BoxedToolDefinition {
 				return rows(
 					() => [
 						...modelLines.slice(0, count),
-						...(modelLines.length > count ? [`… ${modelLines.length - count} more · Ctrl+O to expand`] : []),
+						...(modelLines.length > count ? [theme.fg("dim", `… ${modelLines.length - count} more`)] : []),
 					],
-					count + 1,
+					count,
 				);
 			}
 			if (name.startsWith("teammate_")) {
 				const data = receipt;
-				const status = clean(data.state, 24);
+				// `name` + `color` are authoritative when the runtime publishes them; the
+				// name index keeps later task/message rows in the same identity color.
+				rememberTeammateIdentity(data);
+				const state = clean(data.state, 24);
 				const availability = clean(data.availability, 32);
 				const recovery = clean(data.recoveryError ?? data.recovery, options.expanded ? 1000 : 300);
-				const lines = [
-					`${error ? theme.fg("error", "ERROR · ") : theme.fg("dim", "└─ ")}@${clean(data.name, 64)}${status ? ` · ${status}` : clean(raw, 200) ? ` · ${clean(raw, 200)}` : ""}${availability ? ` · availability ${availability}` : ""}${typeof data.contextAvailable === "boolean" ? ` · context ${data.contextAvailable ? "available" : "unavailable"}` : ""}`,
-				];
-				if (recovery) lines.push(theme.fg("error", `  Recovery: ${recovery}`));
-				if (data.changed === true) lines.push(theme.fg("dim", "  Task claims unchanged"));
-				if (options.expanded && raw) lines.push(...raw.split("\n").map((line) => `  ${clean(line, 1000)}`));
+				const verb = name === "teammate_shutdown" ? "shut down" : name === "teammate_release" ? "released" : undefined;
+				// Facets only; the call line already carries the identity, so the body
+				// never repeats `@name`. Defaults are dropped: `available` is the
+				// expected state, only deviations earn a word (and a warning tint).
+				const segments: string[] = [];
+				const add = (value: string, color: "dim" | "warning" = "dim") => {
+					if (value) segments.push(theme.fg(color, value));
+				};
+				add(state || (verb && data.changed === true ? verb : ""));
+				add(clean(data.operation, 24), "warning");
+				if (availability === "unavailable") add("unavailable", "warning");
+				if (typeof data.contextAvailable === "boolean")
+					add(
+						`context ${data.contextAvailable ? "available" : "unavailable"}`,
+						data.contextAvailable ? "dim" : "warning",
+					);
+				if (name !== "teammate_status" && data.changed === true) add("task claims unchanged");
+				const head = error
+					? `${theme.fg("error", "└─ ")}${theme.fg("error", clean(raw, options.expanded ? 2000 : 200) || "failed")}`
+					: `${theme.fg("dim", "└─ ")}${segments.join(theme.fg("dim", " · ")) || theme.fg("dim", clean(raw, 200) || "done")}`;
+				const lines = [head];
+				if (recovery) lines.push(theme.fg("error", `   Recovery: ${recovery}`));
+				// Expanded adds what the one-liner omits: admitted type and run identity
+				// (the values `steer_subagent`/`get_subagent_result` still address).
+				if (options.expanded) {
+					const type = clean(data.type, 64);
+					if (type) lines.push(theme.fg("dim", `   type ${type}`));
+					const live = clean(data.currentRunId, 256);
+					const last = clean(data.lastRunId, 256);
+					if (live && live !== last) lines.push(theme.fg("dim", `   live run ${live}`));
+					if (last) lines.push(theme.fg("dim", `   last run ${last}`));
+				}
 				return rows(() => lines, 8);
 			}
 			const lines = options.expanded ? raw.split("\n").map((line) => clean(line, 2000)) : [clean(raw, 200)];
@@ -889,7 +1155,7 @@ export const teamTaskTools: Readonly<Record<string, BoxedToolDefinition>> = Obje
 	...[
 		"teammate_status",
 		"teammate_release",
-		"teammate_retire",
+		"teammate_shutdown",
 		"list_models",
 		"tasks_create",
 		"tasks_list",
@@ -900,6 +1166,12 @@ export const teamTaskTools: Readonly<Record<string, BoxedToolDefinition>> = Obje
 		"tasks_output",
 		"tasks_stop",
 	].map((name) => [name, teamTool(name)]),
+	// Legacy name kept for saved sessions only; pi-teams registered this tool as
+	// `teammate_shutdown`.
+	["teammate_retire", teamTool("teammate_shutdown")],
+	["peer_sessions", peerSessionsTool],
+	["peer_send", peerSendTool],
+	["peer_activity", peerActivityTool],
 	["team_task_create", teamTool("tasks_create")],
 	["team_task_update", teamTool("tasks_update")],
 	["team_task_get", teamTool("tasks_get")],

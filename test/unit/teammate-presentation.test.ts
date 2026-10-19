@@ -461,7 +461,10 @@ describe("pi-teams tool presentation", () => {
 			palette,
 			{ ...waiting.ctx, expanded: true },
 		).render(100);
-		expect(expanded[1]).toBe(`Teammate: ${identity}`);
+		// Expanded keeps the run id (`Agent:`) but never repeats the identity the
+		// head already carries.
+		expect(expanded.join("\n")).not.toContain("Teammate:");
+		expect(plain(expanded)[0]).toBe("└─ Type: review | Status: completed");
 		expect(expanded.at(-1)).not.toContain("\x1b[38;2;0;187;221m");
 		expect(teammateColorForRun("run-review")).toBe("#00bbdd");
 		const mismatched =
@@ -569,9 +572,19 @@ describe("pi-teams tool presentation", () => {
 		);
 		// The settled glyph itself is the receipt: no `queued` verb is appended.
 		expect(plain(mail.component.render(90))[0]).toBe("● Message to @reviewer (Ctrl+O to expand)");
+		renderBoxedToolResult(
+			"send_message",
+			result("Message not sent: @reviewer is released."),
+			{ expanded: false, isPartial: false },
+			theme,
+			mail.ctx,
+		);
+		// The producer's own `Message not sent:` prefix must not print twice.
+		expect(plain(mail.component.render(90))[0]).toBe("✗ Message to @reviewer · not sent: @reviewer is released.");
 		const steer = call("steer_subagent", "steer", { agent_id: "run-1", message: "Focus on API" }, palette);
-		expect(plain(steer.component.render(90))[0]).toBe("● Steer to @run-1 (Ctrl+O to expand)");
-		expect(steer.component.render(90)[0]).toContain("\x1b[38;2;68;102;170m@run-1\x1b[39m");
+		// An unknown run id renders as a muted id, never as a fake `@teammate`.
+		expect(plain(steer.component.render(90))[0]).toBe("● Steer to run-1 (Ctrl+O to expand)");
+		expect(steer.component.render(90)[0]).not.toContain("\x1b[38;2;68;102;170m");
 		renderBoxedToolResult(
 			"steer_subagent",
 			result("Agent cannot be steered"),
@@ -579,7 +592,7 @@ describe("pi-teams tool presentation", () => {
 			theme,
 			steer.ctx,
 		);
-		expect(plain(steer.component.render(90))[0]).toBe("✗ Steer to @run-1 · Agent cannot be steered");
+		expect(plain(steer.component.render(90))[0]).toBe("✗ Steer to run-1 · Agent cannot be steered");
 		const invalidTarget = call("send_message", "bad-target", { target: "bad\rFORGED", message: "hi" });
 		renderBoxedToolResult(
 			"send_message",
@@ -596,8 +609,9 @@ describe("pi-teams tool presentation", () => {
 			.join("\n");
 		expect(failed).not.toContain("\r");
 		expect(failed).toContain("bad FORGED");
-		// Expanded: the identical head minus the hint, then the │-railed body.
-		expect(failed).toContain("  │ hi");
+		// Expanded: the identical head minus the hint, then a hanging dim body block
+		// (no rail glyph).
+		expect(stripAnsi(failed)).toContain("└─ hi");
 	});
 
 	it("keeps a team receipt visible while a later tools-only member owns the collapse disclosure", () => {
@@ -784,10 +798,14 @@ describe("pi-teams tool presentation", () => {
 			theme,
 			list.ctx,
 		);
-		expect(plain(list.component.render(80))[0]).toBe("● Tasks");
-		expect(plain(view.render(80))).toHaveLength(4);
-		expect(plain(view.render(80)).join(" ")).toContain("T1 · Task 0 · pending · blocked by T9");
-		expect(plain(view.render(80)).join(" ")).toContain("3 more");
+		// The result renderer lifts the board counts into the call head, so the
+		// card never prints a second header line.
+		expect(plain(list.component.render(80))[0]).toBe("● Tasks (6 open)");
+		const rows = plain(view.render(80));
+		expect(rows).toHaveLength(4);
+		expect(rows[0]).toBe("└─ ◌ T1 unassigned Task 0 ← T9");
+		expect(rows[1]).toContain("○ T2 unassigned Task 1");
+		expect(rows.at(-1)).toBe("   … 3 more");
 		const expandedTree = renderBoxedToolResult(
 			"tasks_list",
 			result(JSON.stringify(tasks)),
@@ -804,7 +822,7 @@ describe("pi-teams tool presentation", () => {
 			theme,
 			context("models", { expanded: true }),
 		);
-		expect(models.render(80)).toHaveLength(46);
+		expect(models.render(80)).toHaveLength(45);
 		expect(models.render(80).join("\n")).toContain("provider/model-44");
 		expect(models.render(80).join("\n")).not.toContain("Ctrl+O to expand");
 		const escapedModels = renderBoxedToolResult(
@@ -890,7 +908,7 @@ describe("pi-teams tool presentation", () => {
 			theme,
 			context("output-error", { id: "T1", expanded: true }),
 		);
-		expect(plain(failedOutput.render(80)).join("\n")).toContain("ERROR No live runtime");
+		expect(plain(failedOutput.render(80)).join("\n")).toContain("error: No live runtime");
 		expect(plain(failedOutput.render(80)).join("\n")).toContain("partial answer");
 		const lifecycle = renderBoxedToolResult(
 			"teammate_release",
@@ -905,9 +923,11 @@ describe("pi-teams tool presentation", () => {
 			theme,
 			context("release", { name: "reviewer", expanded: true }),
 		);
-		expect(plain(lifecycle.render(80)).join(" ")).toContain(
-			"released · availability unavailable · context unavailable",
-		);
+		const lifecycleText = plain(lifecycle.render(80)).join("\n");
+		expect(lifecycleText).toContain("└─ released · unavailable · context unavailable");
+		expect(lifecycleText).toContain("task claims unchanged");
+		// The call head owns the identity: the body never repeats it.
+		expect(lifecycleText).not.toContain("@reviewer");
 		const lifecycleFailure = renderBoxedToolResult(
 			"teammate_retire",
 			result("Retire failed for @reviewer: busy", {
@@ -930,6 +950,222 @@ describe("pi-teams tool presentation", () => {
 			context("get", { id: "x" }),
 		);
 		expect(plain(fallback.render(80))[0]).toContain("Unknown task");
+	});
+
+	it("keeps lifecycle receipts identity-free in the body and reuses the published identity color", () => {
+		const palette = createFakeTheme({ colors: { accent: "#4466aa" } });
+		const status = call("teammate_status", "status-card", { name: "reviewer" }, palette);
+		const details = {
+			name: "reviewer",
+			type: "review",
+			color: "#00bbdd",
+			state: "idle",
+			availability: "available",
+			contextAvailable: true,
+			currentRunId: "run-live",
+			lastRunId: "run-last",
+		};
+		const collapsed = renderBoxedToolResult(
+			"teammate_status",
+			result("@reviewer: idle · context available", details),
+			{ expanded: false, isPartial: false },
+			palette,
+			status.ctx,
+		);
+		expect(plain(collapsed.render(100))).toEqual(["└─ idle · context available"]);
+		expect(plain(status.component.render(100))[0]).toBe("● Teammate status @reviewer");
+		const expanded = renderBoxedToolResult(
+			"teammate_status",
+			result("@reviewer: idle · context available", details),
+			{ expanded: true, isPartial: false },
+			palette,
+			{ ...status.ctx, expanded: true },
+		);
+		const expandedText = plain(expanded.render(100)).join("\n");
+		expect(expandedText).not.toContain("@reviewer");
+		expect(expandedText).toContain("   type review");
+		expect(expandedText).toContain("   live run run-live");
+		expect(expandedText).toContain("   last run run-last");
+
+		// The status receipt published `reviewer` → `#00bbdd`; rows without a run
+		// id (task owners, message targets) reuse it instead of the generic accent.
+		const board = call("tasks_list", "board-color", {}, palette);
+		const boardResult = result(
+			JSON.stringify([{ id: "t1", code: "T1", title: "Ship it", status: "in_progress", owner: "reviewer" }]),
+		);
+		const boardRows = renderBoxedToolResult(
+			"tasks_list",
+			boardResult,
+			{ expanded: false, isPartial: false },
+			palette,
+			board.ctx,
+		);
+		expect(plain(board.component.render(100))[0]).toBe("● Tasks (1 in progress)");
+		expect(boardRows.render(100)[0]).toContain("\x1b[38;2;0;187;221m@reviewer\x1b[39m");
+		const target = call("send_message", "mail-color", { target: "reviewer", message: "hi" }, palette);
+		expect(target.component.render(100)[0]).toContain("\x1b[38;2;0;187;221m@reviewer\x1b[39m");
+
+		const shutdown = call("teammate_shutdown", "shutdown-card", { name: "reviewer" }, palette);
+		expect(plain(shutdown.component.render(100))[0]).toBe("● Shutdown @reviewer");
+		const shutdownView = renderBoxedToolResult(
+			"teammate_shutdown",
+			result("Teammate @reviewer was shut down and removed.", { name: "reviewer", changed: true }),
+			{ expanded: false, isPartial: false },
+			palette,
+			shutdown.ctx,
+		);
+		expect(plain(shutdownView.render(100))[0]).toBe("└─ shut down · task claims unchanged");
+	});
+
+	it("resolves steer targets from lifecycle and task run ids, not only Agent receipts", () => {
+		const palette = createFakeTheme({ colors: { accent: "#4466aa" } });
+		const identity = "\x1b[38;2;0;187;221m@s2-storage-builder\x1b[39m";
+		// A lifecycle receipt publishes the live run id; the steer card must resolve
+		// the id even though no Agent result ever registered it in this branch.
+		renderBoxedToolResult(
+			"teammate_status",
+			result("@s2-storage-builder: idle · context available", {
+				name: "s2-storage-builder",
+				color: "#00bbdd",
+				state: "idle",
+				availability: "available",
+				contextAvailable: true,
+				currentRunId: "92845307-ff7a-442a-b00a-928453070000",
+			}),
+			{ expanded: false, isPartial: false },
+			palette,
+			context("status-runs", { name: "s2-storage-builder" }),
+		);
+		const steer = call(
+			"steer_subagent",
+			"steer-lifecycle-run",
+			{ agent_id: "92845307-ff7a-442a-b00a-928453070000", message: "Focus" },
+			palette,
+		);
+		expect(plain(steer.component.render(100))[0]).toBe("● Steer to @s2-storage-builder (Ctrl+O to expand)");
+		expect(steer.component.render(100)[0]).toContain(identity);
+
+		// A task execution runId resolves through the task projection's attempts.
+		resetTeammateRuns();
+		const execute = context("exec-runs", { id: "T3" });
+		renderBoxedToolResult(
+			"tasks_execute",
+			result(
+				JSON.stringify({
+					task: {
+						id: "t1",
+						code: "T3",
+						title: "Ship it",
+						status: "in_progress",
+						attempts: [{ runId: "task-run-7", teammateName: "executor" }],
+					},
+					runId: "task-run-7",
+				}),
+			),
+			{ expanded: false, isPartial: false },
+			palette,
+			execute,
+		);
+		const taskSteer = call("steer_subagent", "steer-task-run", { agent_id: "task-run-7", message: "Go" }, palette);
+		expect(plain(taskSteer.component.render(100))[0]).toBe("● Steer to @executor (Ctrl+O to expand)");
+	});
+
+	it("keeps tree glyphs and expanded detail dim, with no rail glyph", () => {
+		const palette = createFakeTheme({ colors: { dim: "#7f7f7f", accent: "#4466aa" } });
+		const dim = (text: string) => `\x1b[38;2;127;127;127m${text}\x1b[39m`;
+		// Agent batch: the branch is structure, always dim.
+		const memberA = call("Agent", "dim-branch-a", { name: "w1", run_in_background: true, description: "one" }, palette);
+		const memberB = call("Agent", "dim-branch-b", { name: "w2", run_in_background: true, description: "two" }, palette);
+		const batchRows = memberA.component.render(100);
+		expect(batchRows[1]?.startsWith(dim("├─")) || batchRows[1]?.startsWith(dim("└─"))).toBe(true);
+		expect(memberB.component.render(100)).toEqual([]);
+		closeActiveBatch();
+
+		// Expanded message body: dim, indented, no `│` rail anywhere.
+		const mail = call("send_message", "dim-mail", { target: "w1", message: "ping" }, palette);
+		const mailExpanded = renderBoxedToolCall("send_message", { target: "w1", message: "ping" }, palette, {
+			...mail.ctx,
+			expanded: true,
+		}).render(100);
+		expect(mailExpanded.join("\n")).not.toContain("│");
+		expect(mailExpanded[1]).toBe(`${dim("└─")} ${dim("ping")}`);
+
+		// Expanded get result record: every row dim, no rail, no repeated identity.
+		const get = call("get_subagent_result", "dim-get", { agent_id: "run-dim" }, palette);
+		const getExpanded = renderBoxedToolResult(
+			"get_subagent_result",
+			result("Agent: run-dim\nType: review | Status: completed\n\nDone"),
+			{ expanded: true, isPartial: false },
+			palette,
+			{ ...get.ctx, expanded: true },
+		).render(100);
+		expect(getExpanded.join("\n")).not.toContain("│");
+		expect(stripAnsi(getExpanded.join("\n"))).not.toContain("Teammate:");
+		expect(getExpanded.every((line) => line === "" || line.startsWith("\x1b[38;2;127;127;127m"))).toBe(true);
+
+		// Notification expanded preview rows are dim too.
+		const renderers = new Map<string, (...a: never[]) => { render(w: number): string[] }>();
+		registerTeammateMessageRenderers({
+			registerMessageRenderer: (name: string, fn: (...a: never[]) => never) => renderers.set(name, fn),
+		} as never);
+		const notify = renderers.get("teammate-notification");
+		if (!notify) throw new Error("teammate-notification renderer not registered");
+		const expandedNotify = notify(
+			{
+				content: "Teammate @w1 finished (general-purpose, 1s)\n\nBody line\n\nfull result: /r.md",
+				details: { agentId: "run-dim", teammateName: "w1", outcome: "completed", durationMs: 1000 },
+			} as never,
+			{ expanded: true } as never,
+			palette,
+		).render(100);
+		expect(expandedNotify.join("\n")).toContain(`${dim("└─")} ${dim("Body line")}`);
+	});
+
+	it("clips unknown run ids instead of printing a fake teammate reference", () => {
+		const waiting = call("get_subagent_result", "uuid-run", {
+			agent_id: "92845307-ff7a-442a-b00a-928453070000",
+		});
+		expect(plain(waiting.component.render(100))[0]).toBe("◌ Get result 92845307…");
+		expect(waiting.component.render(100)[0]).not.toContain("@");
+	});
+
+	it("renders peer sessions and peer sends with the shared card vocabulary", () => {
+		const peers = call("peer_sessions", "peers", {});
+		const list = renderBoxedToolResult(
+			"peer_sessions",
+			result(
+				JSON.stringify([
+					{ displayName: "desk", status: "busy", activity: "reviewing", peerSessionId: "peer-a" },
+					{ displayName: "docs", status: "idle", peerSessionId: "peer-b" },
+				]),
+			),
+			{ expanded: false, isPartial: false },
+			theme,
+			peers.ctx,
+		);
+		expect(plain(peers.component.render(100))[0]).toBe("● Peer sessions");
+		expect(plain(list.render(100))).toEqual(["└─ desk busy · reviewing", "   docs idle"]);
+		const send = call("peer_send", "peer-send", { peerSessionId: "92845307abcd", runtimeId: "r", text: "hello" });
+		expect(plain(send.component.render(100))[0]).toBe("● Peer message to peer 92845307 (Ctrl+O to expand)");
+		renderBoxedToolResult(
+			"peer_send",
+			result("Peer message refused (m1)."),
+			{ expanded: false, isPartial: false },
+			theme,
+			send.ctx,
+		);
+		expect(plain(send.component.render(100))[0]).toBe("✗ Peer message to peer 92845307 · Peer message refused (m1).");
+		renderBoxedToolResult(
+			"peer_send",
+			result("Peer message queued (m2)."),
+			{ expanded: false, isPartial: false },
+			theme,
+			send.ctx,
+		);
+		const expandedSend = renderBoxedToolCall("peer_send", send.ctx.args, theme, { ...send.ctx, expanded: true }).render(
+			100,
+		);
+		expect(plain(expandedSend).join("\n")).toContain("└─ hello");
 	});
 });
 
@@ -1022,7 +1258,7 @@ describe("pi-teams message renderers", () => {
 			{ expanded: false } as Parameters<MessageRenderer>[1],
 			palette,
 		);
-		expect(plain(notice?.render(100) ?? [])).toEqual(["● @fe-fleet", "  └ Found files", "  └ ↗ result.md"]);
+		expect(plain(notice?.render(100) ?? [])).toEqual(["● @fe-fleet", "└─ Found files", "   result: result.md"]);
 		expect(notice?.render(100)[0]).toContain("\x1b[38;2;68;102;170m@fe-fleet\x1b[39m");
 		const linked = notice?.render(80).at(-1) ?? "";
 		expect(linked).toContain("\x1b]8;;file:///tmp/result.md\x1b\\result.md\x1b]8;;\x1b\\");
@@ -1042,8 +1278,8 @@ describe("pi-teams message renderers", () => {
 		expect(narrowLines.at(-1)).toContain("result.md");
 		expect(narrowLines.at(-1)).toContain("\x1b]8;;file://");
 		expectLinesFit(narrowLines, 40);
-		const tinyLink = notice?.render(12).at(-1) ?? "";
-		expect(tinyLink).toContain("\x1b]8;;file:///tmp/result.md");
+		const tinyRows = notice?.render(20) ?? [];
+		expect(tinyRows.some((line) => line.includes("\x1b]8;;file:///tmp/result.md"))).toBe(true);
 		expectLinesFit(notice?.render(12) ?? [], 12);
 		const longExpanded = renderers.get("teammate-notification")?.(
 			{
@@ -1055,7 +1291,8 @@ describe("pi-teams message renderers", () => {
 		);
 		const longExpandedRows = longExpanded?.render(80) ?? [];
 		expect(longExpandedRows).toHaveLength(200);
-		expect(longExpandedRows.at(-2)).toContain("worker.md");
+		expect(longExpandedRows.at(-1)).toContain("worker.md");
+		expect(plain(longExpandedRows).at(-2)).toContain("lines omitted");
 		setCapabilities({ images: null, trueColor: true, hyperlinks: false });
 		const noHyperlinks = notice?.render(80).at(-1) ?? "";
 		expect(noHyperlinks).toContain("/tmp/result.md");
@@ -1071,21 +1308,21 @@ describe("pi-teams message renderers", () => {
 		);
 		expect(unusual?.render(120).join("\n")).toContain("file:///tmp/project%23v1/a%20result.md");
 		const width16Link = unusual?.render(16).find((line) => line.includes("\x1b]8;;file://")) ?? "";
-		expect(stripAnsi(width16Link)).toContain("/tmp/proj");
+		expect(stripAnsi(width16Link)).toContain("result:");
 		expect(width16Link).toContain("\x1b]8;;file://");
-		const expandedTinyLink = unusual?.render(12).at(-2) ?? "";
-		expect(expandedTinyLink).toContain("\x1b]8;;file:///tmp/project%23v1/a%20result.md");
+		const collapsedLink = (unusual?.render(24) ?? []).filter((line) => line.includes("\x1b]8;;file://"));
+		expect(collapsedLink.at(-1) ?? "").toContain("\x1b]8;;file:///tmp/project%23v1/a%20result.md");
 		expectLinesFit(unusual?.render(12) ?? [], 12);
 		setCapabilities({ images: null, trueColor: true, hyperlinks: false });
-		const noHyperlinkNarrow = unusual?.render(12) ?? [];
+		const noHyperlinkNarrow = unusual?.render(40) ?? [];
 		expect(
 			noHyperlinkNarrow
 				.map(stripAnsi)
-				.map((line) => line.replace(/^ {2}↗ /, "").replace(/^ {4}/, ""))
+				.map((line) => line.replace(/^\s*result: /, "").replace(/^\s+/, ""))
 				.join(""),
 		).toContain(unusualPath);
 		expect(noHyperlinkNarrow.join("\n")).not.toContain("\x1b]8;;");
-		expectLinesFit(noHyperlinkNarrow, 12);
+		expectLinesFit(unusual?.render(12) ?? [], 12);
 		setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 		const withoutResult = renderers.get("teammate-notification")?.(
 			{
@@ -1110,7 +1347,16 @@ describe("pi-teams message renderers", () => {
 			{ expanded: false } as Parameters<MessageRenderer>[1],
 			palette,
 		);
-		expect(plain(grouped?.render(100) ?? []).join("\n")).toContain("✗ @bad · broken");
+		// A batch message renders one card per teammate — no aggregate header.
+		expect(plain(grouped?.render(100) ?? [])).toEqual([
+			"● @lead",
+			"└─ OK",
+			"   result: result.md",
+			"",
+			"✗ @bad",
+			"└─ broken",
+			"   result: result.md",
+		]);
 		const longCompleted = Array.from({ length: 200 }, () => "x").join("\n");
 		const budgetedGroup = renderers.get("teammate-notification")?.(
 			{
@@ -1126,10 +1372,10 @@ describe("pi-teams message renderers", () => {
 			palette,
 		);
 		const budgetedRows = plain(budgetedGroup?.render(100) ?? []);
-		expect(budgetedRows).toHaveLength(200);
-		expect(budgetedRows).toContain("  @bad:");
-		expect(budgetedRows).toContain("    Strict model admission failed: no valid candidates");
-		expect(budgetedRows.join("\n")).toContain("noncritical preview lines to keep failure receipts visible");
+		expect(budgetedRows[0]).toBe("● @lead");
+		expect(budgetedRows.join("\n")).toContain("lines omitted");
+		expect(budgetedRows.join("\n")).toContain("rows omitted");
+		// Ambiguous grouped boundaries still fail closed per card.
 		const spoofed = renderers.get("teammate-notification")?.(
 			{
 				content:
@@ -1147,100 +1393,44 @@ describe("pi-teams message renderers", () => {
 		expect(spoofedRows).toContain("ambiguous section boundaries");
 		expect(spoofedRows).not.toContain("Quoted fake error");
 		setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+		// Narrow viewport + long artifact paths: chunked `result:` rows stay inside
+		// the width and the batch caps at 200 rows.
 		const artifactPath = (letter: string): string => `/root/${letter.repeat(522)}`;
-		const artifactReports = [
-			{ name: "completed-member-one-with-a-long-name", path: artifactPath("a") },
-			{ name: "completed-member-two", path: artifactPath("b") },
-			{ name: "completed-member-three", path: artifactPath("c") },
-		];
-		const groupedContent = [
-			"4 teammates reported from the same launch batch:",
-			...artifactReports.flatMap((item, index) => [
-				"",
-				`@${item.name} (completed):`,
-				`done-${index + 1}`,
-				`full result: ${item.path}`,
-			]),
+		const artifactContent = [
+			"3 teammates reported from the same launch batch:",
 			"",
-			"@failed-member-with-a-long-name (failed):",
-			"boom",
+			"@one (completed):",
+			"done-1",
+			`full result: ${artifactPath("a")}`,
+			"",
+			"@two (completed):",
+			"done-2",
+			`full result: ${artifactPath("b")}`,
+			"",
+			"@three (completed):",
+			"done-3",
+			`full result: ${artifactPath("c")}`,
 		].join("\n");
-		const crowdedGroup = renderers.get("teammate-notification")?.(
+		const crowded = renderers.get("teammate-notification")?.(
 			{
-				content: groupedContent,
+				content: artifactContent,
 				details: {
-					teammateName: artifactReports[0]?.name,
+					teammateName: "one",
 					outcome: "completed",
-					resultFile: artifactReports[0]?.path,
+					resultFile: artifactPath("a"),
 					others: [
-						...artifactReports.slice(1).map((item) => ({
-							teammateName: item.name,
-							outcome: "completed",
-							resultFile: item.path,
-						})),
-						{ teammateName: "failed-member-with-a-long-name", outcome: "failed" },
+						{ teammateName: "two", outcome: "completed", resultFile: artifactPath("b") },
+						{ teammateName: "three", outcome: "completed", resultFile: artifactPath("c") },
 					],
 				},
 			} as Parameters<MessageRenderer>[0],
 			{ expanded: true } as Parameters<MessageRenderer>[1],
 			palette,
 		);
-		const crowdedRows = plain(crowdedGroup?.render(12) ?? []);
+		const crowdedRows = plain(crowded?.render(12) ?? []);
 		expect(crowdedRows).toHaveLength(200);
-		expect(crowdedRows.some((line) => line.includes("failed"))).toBe(true);
-		expect(crowdedRows).toContain("    boom");
 		expect(crowdedRows.join("\n")).toContain("omitted");
-		expectLinesFit(crowdedGroup?.render(12) ?? [], 12);
-		const renderedArtifactText = crowdedRows
-			.filter((line) => line.startsWith("  ↗ ") || /^ {4}[abc]+$/.test(line))
-			.map((line) => line.replace(/^ {2}↗ /, "").replace(/^ {4}/, ""))
-			.join("");
-		expect(renderedArtifactText).toContain(artifactReports[0]?.path);
-		expect(renderedArtifactText).toContain(artifactReports[1]?.path);
-
-		const sixArtifacts = Array.from({ length: 6 }, (_, index) => ({
-			name: `member-${index + 1}`,
-			path: `/${String(index + 1).repeat(799)}`,
-		}));
-		const sixArtifactContent = [
-			"7 teammates reported from the same launch batch:",
-			...sixArtifacts.flatMap((item, index) => [
-				"",
-				`@${item.name} (completed):`,
-				`done-${index + 1}`,
-				`full result: ${item.path}`,
-			]),
-			"",
-			"@failed-member (failed):",
-			"boom",
-		].join("\n");
-		const sixArtifactGroup = renderers.get("teammate-notification")?.(
-			{
-				content: sixArtifactContent,
-				details: {
-					teammateName: sixArtifacts[0]?.name,
-					outcome: "completed",
-					resultFile: sixArtifacts[0]?.path,
-					others: [
-						...sixArtifacts.slice(1).map((item) => ({
-							teammateName: item.name,
-							outcome: "completed",
-							resultFile: item.path,
-						})),
-						{ teammateName: "failed-member", outcome: "failed" },
-					],
-				},
-			} as Parameters<MessageRenderer>[0],
-			{ expanded: true } as Parameters<MessageRenderer>[1],
-			palette,
-		);
-		const sixArtifactRows = plain(sixArtifactGroup?.render(24) ?? []);
-		expect(sixArtifactRows).toHaveLength(200);
-		expect(sixArtifactRows).toContain("    boom");
-		const artifactOmission = sixArtifactRows.find((line) => line.includes("omitted")) ?? "";
-		expect(artifactOmission).toContain("omitted 51");
-		expect(artifactOmission).not.toContain("omitted 11");
-		expectLinesFit(sixArtifactGroup?.render(24) ?? [], 24);
+		expectLinesFit(crowded?.render(12) ?? [], 12);
 		const message = renderers.get("teammate-message")?.(
 			{
 				content: "Message from @fe-fleet:\n\nFound routes",
@@ -1297,7 +1487,8 @@ describe("ADR 0012 team event transcript", () => {
 		);
 		const header = `${glyphMode === "ascii" ? "*" : "●"} Models`;
 		expect(plain(models.component.render(100))[0]).toBe(header);
-		expect(plain(output.render(100))[0]).toBe(header);
+		// The card prints one header: rows hang from the call line, no repeated head.
+		expect(plain(output.render(100))).toEqual(["└─ openai-codex/gpt-6-luna"]);
 		const release = call("teammate_release", `release-${glyphMode}`, { name: "luna" });
 		expect(plain(release.component.render(100))[0]).toBe(`${header[0]} Release @luna`);
 	});
@@ -1356,10 +1547,16 @@ describe("ADR 0012 team event transcript", () => {
 			context("models-many", { query: "flash" }),
 		);
 		const lines = plain(many.render(100));
-		expect(lines[0]).toBe("● Models · flash · 2/10");
-		expect(lines[1]).toBe("├─ glm-5.3-flash");
-		expect(lines[2]).toBe("├─ claude-sonnet-4-5");
-		expect(lines[3]).toBe("└─ gpt-5 — GPT Five");
+		expect(lines).toEqual(["└─ glm-5.3-flash", "   claude-sonnet-4-5", "   gpt-5 — GPT Five"]);
+		const cardHead = call("list_models", "models-many-head", { query: "flash" }, theme);
+		renderBoxedToolResult(
+			"list_models",
+			result(["zhipu/glm-5.3-flash — GLM-5.3-Flash", "2 of 10 matching models shown"].join("\n")),
+			{ expanded: false, isPartial: false },
+			theme,
+			cardHead.ctx,
+		);
+		expect(plain(cardHead.component.render(100))[0]).toBe("● Models · flash · 2/10");
 		const expanded = renderBoxedToolResult(
 			"list_models",
 			result("zhipu/glm-5.3-flash — GLM-5.3-Flash\n1 of 7 matching models shown"),
@@ -1367,7 +1564,7 @@ describe("ADR 0012 team event transcript", () => {
 			theme,
 			context("models-one", { query: "glm" }),
 		);
-		expect(plain(expanded.render(100))).toEqual(["● Models · glm · 1/7", "└─ zhipu/glm-5.3-flash"]);
+		expect(plain(expanded.render(100))).toEqual(["└─ zhipu/glm-5.3-flash"]);
 		const expandedMany = renderBoxedToolResult(
 			"list_models",
 			result("zhipu/glm-5.3-flash — GLM-5.3-Flash\nanthropic/claude-sonnet-4-5 — Claude Sonnet 4.5"),
@@ -1375,11 +1572,7 @@ describe("ADR 0012 team event transcript", () => {
 			theme,
 			context("models-expanded", {}),
 		);
-		expect(plain(expandedMany.render(100))).toEqual([
-			"● Models",
-			"├─ zhipu/glm-5.3-flash",
-			"└─ anthropic/claude-sonnet-4-5",
-		]);
+		expect(plain(expandedMany.render(100))).toEqual(["└─ zhipu/glm-5.3-flash", "   anthropic/claude-sonnet-4-5"]);
 		// Unparseable results keep the verbatim fail-closed fallback.
 		const fallback = renderBoxedToolResult(
 			"list_models",
@@ -1440,7 +1633,7 @@ describe("ADR 0012 team event transcript", () => {
 			{ expanded: false } as Parameters<MessageRenderer>[1],
 			palette,
 		);
-		expect(plain(notice?.render(100) ?? [])).toEqual(["● @worker · 2m 03s · ↓146.5k tokens", "  └ All checks pass"]);
+		expect(plain(notice?.render(100) ?? [])).toEqual(["● @worker · 2m 03s · ↓146.5k tokens", "└─ All checks pass"]);
 		// Rule 5: the notification renderer settles the remembered run in-process.
 		closeActiveBatch();
 		const spawn = call("Agent", "notify-spawn", { name: "worker", run_in_background: true });
@@ -1530,16 +1723,16 @@ describe("ADR 0013 task delta cards", () => {
 		};
 		const rows = plain(render("tasks_update", accepted, "d-expanded", true).render(120));
 		expect(rows[0]).toBe("└ T5 accepted · @worker · 2 checks: 1 passed · 1 failed · 1 issue remaining · 2 artifacts");
-		expect(rows[1]).toBe("  │ Summary: Main accepts bounded retirement");
-		expect(rows[2]).toBe("  │ Continuation line");
-		expect(rows[3]).toContain("├─ ↗ ");
+		expect(rows[1]).toBe("  Summary: Main accepts bounded retirement");
+		expect(rows[2]).toBe("  Continuation line");
+		expect(rows[3]).toContain("  artifact: ");
 		expect(rows[3]).toContain("...");
 		expect(rows[3]).not.toContain("/tmp/work/very/long/");
-		expect(rows[4]).toBe("  └─ ↗ /tmp/work/delta-suite.log");
+		expect(rows[4]).toBe("  artifact: /tmp/work/delta-suite.log");
 		expect(rows[5]).toBe("  ✓ unit tests — 42 passed");
 		expect(rows[6]).toBe("  ✗ typecheck — src/a.ts:1 error");
-		expect(rows[7]).toBe("  │ Remaining: One follow-up remains");
-		expect(rows[8]).toBe("  │ split line");
+		expect(rows[7]).toBe("  Remaining: One follow-up remains");
+		expect(rows[8]).toBe("  split line");
 		// Artifacts with real absolute paths hyperlink when the capability exists.
 		setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 		const linked = render("tasks_update", accepted, "d-linked", true).render(120);
@@ -1560,7 +1753,7 @@ describe("ADR 0013 task delta cards", () => {
 
 	it("renders both tasks_stop deltas", () => {
 		expect(plain(render("tasks_stop", { stopped: true, task: { code: "T5" } }, "d-stop").render(100))).toEqual([
-			"└ T5 attempt stop requested",
+			"└ attempt stop requested",
 		]);
 		expect(plain(render("tasks_stop", { stopped: false }, "d-stop-idle").render(100))).toEqual(["no running attempt"]);
 	});
@@ -1573,11 +1766,22 @@ describe("ADR 0013 task delta cards", () => {
 		};
 		expect(plain(render("tasks_output", payload, "d-out").render(100))).toEqual([
 			"└─ completed · @reviewer",
-			"  └ All checks pass … +1 lines",
+			"   All checks pass … +1 lines",
 		]);
 		const expanded = plain(render("tasks_output", payload, "d-out-x", true).render(100));
-		expect(expanded).toContain("  ## Findings");
-		expect(expanded).toContain("  **All** checks `pass`");
+		expect(expanded).toContain("   ## Findings");
+		expect(expanded).toContain("   **All** checks `pass`");
+		// A dead runtime collapses into one line: status · error: reason, then the
+		// partial output preview (never two `ERROR` rows).
+		expect(
+			plain(
+				render(
+					"tasks_output",
+					{ taskId: "id-1", attempt: { status: "running" }, error: "No live runtime", result: "partial" },
+					"d-out-err",
+				).render(100),
+			),
+		).toEqual(["└─ running · error: No live runtime", "   partial"]);
 	});
 
 	it("falls back to the existing summary line for unmapped statuses (fail-closed)", () => {

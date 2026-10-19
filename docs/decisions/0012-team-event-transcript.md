@@ -21,6 +21,8 @@ Team surfaces grew ad-hoc vocabularies: the spawn card said `● Spawn 2 backgro
 | Failed | `✗` | `x` | crossed |
 | Stopped/partial | `○` (dim, `stopped` label) | `o` | hollow again |
 
+**One structure language (revised 2026-10):** tree glyphs (`├─`/`└─`) are structure and therefore **always dim**, never tinted by the row state; expanded detail text below a team head is **dim** and renders as a hanging block — the first row carries the `└─` branch and every later row aligns under it (no `│ ` rail anywhere). Only the status glyph, the identity (`@name`) and error/warning payloads carry color.
+
 **Fill = progress:** the glyph flips exactly once, at settlement; partial/streaming updates never change it. Background Agent rows track the **run**, not the tool call: they stay `◌` after admission and flip to `●`/`✗` when the completion notification arrives (rule 5). Tree rows reuse the `├─ └─` + `… N more` truncation of the List/Glob/Grep/git boxless-card family; metadata is dim; duration/tokens sit at the line tail as `· 2m 03s · ↓146.5k`. Messages reuse the same event glyphs — `●` settled (muted tint; messages are not success/failure) and `✗` failed — with no separate envelope glyph (rule 9).
 
 Rendering uses explicit `glyphMode: unicode|ascii` supplied by the coordinator in `ToolsRenderConfig`; ASCII is not inferred from `mergedSummaryGlyph`. The internal legacy `nerdFonts` flag remains accepted but is forced false and ignored.
@@ -35,7 +37,12 @@ Collapsed single: `<glyph> Agent @name · <description> · <short-model>`. Model
 
 ### 4. Completion notification as a boxless card
 
-Single: `<glyph> @name · 2m 03s · ↓146.5k tokens` head, then `  └ <normalized preview>`, then `  └ ↗ result.md` (the existing hyperlink capability logic in `resultLinkRows` is reused untouched). Grouped: `<glyph> N teammates finished · 2 ✓ · 1 ✗` head + tree rows; every failure keeps its own `└` reason row; successes may compress to name lists. Outcome glyphs: completed → `●` (success tint), failed → `✗` (error), stopped → `○` (dim). Duration/tokens render **only** from `details.durationMs`/`details.totalTokens` when the producer includes them — absent fields are omitted silently, never fabricated. The notification's own rows always render from message content alone (session-derived), so live and resume produce the same layout.
+**One card per teammate.** A batch completion message (several teammates reporting from the same launch) renders N cards with one blank row between them — there is no aggregate `N teammates finished` header and no tree. Collapsed and expanded share the same shape:
+
+- **Collapsed:** `<glyph> @name · 2m 03s · ↓146.5k tokens`, then `└─ <normalized preview>`, then `result: result.md` (full path when the host has no hyperlink capability).
+- **Expanded:** the same head, the full preview as a dim hanging block (`└─` on the first row, later rows aligned under it), then `result: <full path>` as the block's last continuation row.
+
+Outcome glyphs: completed → `●` (success tint), failed → `✗` (error), stopped → `○` (dim). There is no `outcome:` footer — the head glyph already carries the outcome, and no `↗` icon (the `result:` label is the affordance; the path stays hyperlinked where supported). Duration/tokens render **only** from `details.durationMs`/`details.totalTokens` when the producer includes them — absent fields are omitted silently, never fabricated. Rows always derive from message content alone (session-derived), so live and resume agree. Budget: each expanded card reserves room for its `result:` rows and caps the batch at 200 rows with a dim `… N rows omitted` notice.
 
 ### 5. Minimal supersede (run-level glyph)
 
@@ -51,7 +58,7 @@ Collapsed model labels show the tail after `/`; expanded/full-detail contexts ke
 
 ### 8. `get_subagent_result`
 
-Head `◌ Get result @name` while waiting (`· wait` suffix only when `wait: true`), settled `●`. The result row is `  └ Status: partial · Verdict: undetermined — No actionable bugs…` via `normalizePreview`, parsing the `Type: … | Status: …` header lines as labeled fields and dropping `Type:`/`Teammate:` noise so `@name` never prints twice. Expanded rendering stays verbatim.
+Head `◌ Get result @name` while waiting (`· wait` suffix only when `wait: true`), settled `●`. The result row is `  └ Status: partial · Verdict: undetermined — No actionable bugs…` via `normalizePreview`, parsing the `Type: … | Status: …` header lines as labeled fields and dropping `Type:`/`Teammate:`/`Agent:` noise so `@name` and the raw run id never print twice. Expanded rendering stays verbatim except that the `Teammate:` line is omitted — the head already carries the identity — while `Agent:` stays so the run id remains copyable. *(Revised 2026-10.)*
 
 ### 9. Message surfaces (minimal disclosure)
 
@@ -62,7 +69,7 @@ All three message surfaces (`teammate-message`, `send_message`, `steer_subagent`
 - **Glyphs** are the same event glyphs: `●` muted, `✗` error; ASCII `*`/`x`. No envelope glyph exists anywhere.
 - **Identity:** `@name` keeps its color from `details.color` (inbound) or the existing roster/label resolution (outbound/steer targets).
 - **Hint:** `(Ctrl+O to expand)` renders dim, only when collapsed AND hidden body content exists; never when expanded, never on an empty body.
-- **Expanded:** the identical head line minus the hint (no repeated sender badge, no `❯` echo), then the full body as `│ `-railed quote rows — 2-space indent + `│ ` on every physical line including blanks (the thinking-quote rail language, not tree rows). Bodies stay verbatim after the existing `clean`/`lines` ANSI/control guards; `normalizePreview` is NOT applied (there is no collapsed preview to normalize).
+- **Expanded:** the identical head line minus the hint (no repeated sender badge, no `❯` echo), then the full body as a **dim hanging block** (`└─` on the first row, later rows aligned under it) — no rail glyph (revised 2026-10: `│` rails were removed from every team surface and replaced by the `└─` hanging block shared with the task/list cards). Bodies stay verbatim after the existing `clean`/`lines` ANSI/control guards; `normalizePreview` is NOT applied (there is no collapsed preview to normalize).
 
 ## Alternatives
 

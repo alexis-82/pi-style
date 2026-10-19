@@ -42,19 +42,19 @@ The collapsed delta compresses the outcome to counts: `N checks: a passed · b f
   └─ ↗ …/delta-reminder-retirement-suite-20261015-052601.log
 ```
 
-- `Summary` renders as `│ `-railed quote row(s) (first line collapsed-clipped; the thinking-quote rail language).
-- Artifacts become tree rows with the `↗` link glyph, paths middle-clipped via `compactToolPath`; hyperlinks follow the existing capability logic where the renderer has a real path.
+- `Summary` renders as a dim row (no rail glyph; revised 2026-10, shared rule with ADR 0012 §1) hanging from the card head, with continuation rows aligned under it; the first line is collapsed-clipped.
+- Artifacts render as labelled `artifact: <path>` rows (no `↗` glyph, revised 2026-10), paths middle-clipped via `compactToolPath`; hyperlinks follow the existing capability logic where the renderer has a real path.
 - Verification rows keep `✓/✗` + first evidence line; remaining issues render as railed rows.
 
 ### 4. `tasks_output` and `tasks_list`
 
-- `tasks_output` body goes through `normalizePreview` (`dropFields` for record-shaped noise), one dim `└` row collapsed; expanded stays verbatim.
-- `tasks_list` keeps its `├─/└─` tree (max 3 + `… N more · Ctrl+O to expand`); row shape unchanged: `code title · status · @owner`.
+- `tasks_output` is one status line: `└─ <status> · @teammate · error: <reason>` (the reason joins the line instead of printing a second `ERROR` row), then the body — `normalizePreview` for the collapsed dim row, verbatim expanded. `… N more` tails never carry a `· Ctrl+O to expand` hint.
+- `tasks_list` renders a hanging card (max 3 + `   … N more · Ctrl+O to expand`): the first row carries the dim `└─` branch and later rows align under it. Row shape is `<glyph> T3 @owner Title` (`tasks_get` keeps the audit line until its expansion) and the call head lifts the counts (`● Tasks (1 in progress, 5 open)`), so the card prints one header instead of repeating the board summary. *(Revised 2026-10: the earlier `code title · status · @owner` tree rows were rejected because they duplicated the inline Tasks widget with a second status vocabulary; glyphs come from the pi-teams task table.)*
 
 ## Alternatives
 
 - **Dump the record on every write** (status quo): rejected — a completion acceptance produced a 9-line wall whose first two lines repeated the call head's information.
-- **Status glyph per task row** (Hub-style colored circles): rejected for the transcript — task status is a five-value dimension; text status inside dim rows plus the operation head keeps one glyph language (ADR 0012 §1) instead of a second vocabulary.
+- **Status glyph per task row** (Hub-style colored circles): rejected at the time — task status is a five-value dimension and text status inside dim rows kept one glyph language. Revised: `tasks_list` now uses the shared task glyph table because the inline widget already renders it and two vocabularies for one board read as a bug.
 - **Rewriting `taskSummary` for all tools**: rejected — `tasks_get`/`tasks_list` reads want the full identifier line; only the mutation results switch to delta lines.
 
 ## Consequences
