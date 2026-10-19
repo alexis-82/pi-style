@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.11] - 2026-10-19
+
+### Features
+
+- *(ui)* Unify team card structure and per-teammate notifications
+
 ## [0.5.10] - 2026-10-16
 
 ### Bug Fixes
