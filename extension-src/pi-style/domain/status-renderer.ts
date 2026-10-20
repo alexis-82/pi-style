@@ -149,7 +149,9 @@ export function renderStatus(
 		primaryText = leftText;
 	} else {
 		const core = leftText ? `${leftText}${padding}${separator}${padding}` : "";
-		const gap = Math.max(2, width - visibleWidth(core) - visibleWidth(rightText));
+		// The fit pass already budgets separators; add only the remaining space.
+		// A minimum gap can overflow an otherwise fitted row and force truncation.
+		const gap = Math.max(0, width - visibleWidth(core) - visibleWidth(rightText));
 		primaryText = `${core}${" ".repeat(gap)}${rightText}`;
 	}
 	if (visibleWidth(primaryText) > width) primaryText = truncateAnsi(primaryText, width);

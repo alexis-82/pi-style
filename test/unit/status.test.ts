@@ -140,6 +140,27 @@ describe("responsive status renderer", () => {
 		expect(stripAnsi(bare.primary).trim()).toBe("claude-sonnet-4-5");
 	});
 
+	it.each([0, 1, 2])("preserves fitted right-aligned content with %i spare columns", (spare) => {
+		const segments = new Map([
+			["left", segment("left", theme.apply("muted", "L"))],
+			["right", segment("right", theme.apply("muted", "右"))],
+		]);
+		const result = renderStatus({ left: ["left"], right: ["right"], secondary: [] }, {}, 6 + spare, {
+			segments,
+			theme,
+		});
+		expect(stripAnsi(result.primary)).toBe(`L | ${" ".repeat(spare)}右`);
+	});
+
+	it.each([0, 1, 2])("preserves a right-only segment with %i spare columns", (spare) => {
+		const segments = new Map([["right", segment("right", "右")]]);
+		const result = renderStatus({ left: [], right: ["right"], secondary: [] }, {}, 2 + spare, {
+			segments,
+			theme,
+		});
+		expect(stripAnsi(result.primary)).toBe(`${" ".repeat(spare)}右`);
+	});
+
 	it("renders extension statuses as sorted values only (native footer format)", () => {
 		const result = renderStatus(
 			{ left: ["extension_statuses"], right: [], secondary: [] },
