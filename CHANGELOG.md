@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.13] - 2026-10-20
+
+### Bug Fixes
+
+- *(ansi)* Truncate by terminal cell width, not UTF-16 length (#1)
+- *(status)* Avoid truncating fitted right-aligned rows (#3)
+
+### Features
+
+- *(compat)* Support Pi 1.3 (#2)
+
 ## [0.5.12] - 2026-10-20
 
 ### Features
