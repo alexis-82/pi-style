@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.12] - 2026-10-20
+
+### Features
+
+- Add process-only --disable-pi-style flag
+
 ## [0.5.11] - 2026-10-19
 
 ### Features
