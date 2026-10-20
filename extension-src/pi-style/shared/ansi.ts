@@ -1,4 +1,4 @@
-import { visibleWidth as tuiVisibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth as tuiTruncateToWidth, visibleWidth as tuiVisibleWidth } from "@earendil-works/pi-tui";
 
 function isFinal(byte: string): boolean {
 	return byte >= "@" && byte <= "~";
@@ -153,25 +153,16 @@ export function fitAnsiWidthTail(value: string, width: number, ellipsis = "…")
 	}
 	return resetAnsi(output);
 }
+/**
+ * Fit text to a terminal cell budget. Delegates to pi-tui so wide characters
+ * (CJK/emoji = 2 cells), combining marks (0 cells) and ANSI sequences (0 cells)
+ * are measured by column, not by UTF-16 code unit; the result never exceeds
+ * `width` cells.
+ */
 export function truncateAnsi(value: string, width: number, ellipsis = "…"): string {
 	if (width <= 0) return "";
 	if (visibleWidth(value) <= width) return resetAnsi(value);
-	const ellipsisWidth = visibleWidth(ellipsis);
-	let output = "";
-	let visible = 0;
-	for (let i = 0; i < value.length && visible < width - ellipsisWidth; i++) {
-		if (value.charCodeAt(i) === 27) {
-			const start = i;
-			i++;
-			while (i + 1 < value.length && !isFinal(value[i + 1] ?? "")) i++;
-			i++;
-			output += value.slice(start, i + 1);
-			continue;
-		}
-		output += value[i];
-		visible++;
-	}
-	return resetAnsi(output + ellipsis);
+	return resetAnsi(tuiTruncateToWidth(value, width, ellipsis));
 }
 export function wrapAnsi(value: string, width: number): string[] {
 	if (width <= 0) return [""];

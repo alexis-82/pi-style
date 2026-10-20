@@ -86,4 +86,15 @@ describe("theme and ANSI foundation", () => {
 		expect(visibleWidth(truncateAnsi(value, 3))).toBe(3);
 		expect(wrapAnsi("one two three", 5).every((line) => visibleWidth(line) <= 5)).toBe(true);
 	});
+	it("measures wide characters by cell, not by code unit, when truncating", () => {
+		// Two cells per CJK glyph: a code-unit budget would keep twice the text
+		// and overflow the frame the caller measured against.
+		const wide = "[u] 检索渠道团队知识库并返回可核验答案；当用户询问模块、接口、流程、仓库影响、平台关系";
+		for (const width of [1, 2, 5, 17, 40, 80]) {
+			expect(visibleWidth(truncateAnsi(wide, width, ""))).toBeLessThanOrEqual(width);
+			expect(visibleWidth(truncateAnsi(wide, width))).toBeLessThanOrEqual(width);
+		}
+		expect(visibleWidth(truncateAnsi("\x1b[2m检索渠道\x1b[0m", 5, ""))).toBeLessThanOrEqual(5);
+		expect(truncateAnsi("检索渠道", 8, "")).toContain("检索渠道");
+	});
 });
