@@ -78,15 +78,22 @@ export function displayPath(rawPath: string, context: BoxedToolContext): string 
 	return shortenPath(resolveRelativePath(path, context.cwd));
 }
 
+/** Match Pi 1.3 read ranges without depending on its new renderer export. */
+export function parseReadLineNumber(value: unknown): number | undefined {
+	if (typeof value === "string" && value.trim() !== "") value = Number(value);
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 export function pathRangeDetail(rawPath: string, offset: unknown, limit: unknown, context: BoxedToolContext): string {
 	const path = displayPath(rawPath, context);
-	let range = "";
-	if (offset !== undefined || limit !== undefined) {
-		const start = offset ?? 1;
-		const end = limit !== undefined ? Number(start) + Number(limit) - 1 : "";
-		range = `:${start}${end ? `-${end}` : ""}`;
-	}
-	return path ? `${path}${range}` : "(unknown)";
+	if (offset == null && limit == null) return path;
+	const start = offset == null ? 1 : parseReadLineNumber(offset);
+	if (start === undefined) return path;
+	if (limit == null) return `${path}:${start}`;
+	const count = parseReadLineNumber(limit);
+	if (count === undefined) return path;
+	const end = start + count - 1;
+	return `${path}:${start}${end ? `-${end}` : ""}`;
 }
 
 /** Compact boxed call header for summary-style tools (read/write/ls/find/grep). */

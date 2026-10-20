@@ -274,6 +274,37 @@ describe("batch grouping for quiet tools", () => {
 });
 
 describe("chunk-merge for sequential same-file reads (ADR 0010)", () => {
+	it.each([
+		[null, null, ""],
+		[undefined, undefined, ""],
+		[null, "5", ":1-5"],
+		["10", null, ":10"],
+		["10", "5", ":10-14"],
+		["bad", 5, ""],
+		[10, "", ""],
+		[10, Number.POSITIVE_INFINITY, ""],
+		[false, 5, ""],
+	] as const)("formats Pi 1.3 optional read arguments (%s, %s)", (offset, limit, range) => {
+		const args = { path: "a.ts", offset, limit };
+		const ctx = context({ args, expanded: true });
+		const call = dispatchCall("read", args, theme, ctx);
+		expect(plain(call.render(80)).join("\n")).toContain(`a.ts${range}`);
+		if (!range) expect(plain(call.render(80)).join("\n")).not.toContain("a.ts:");
+	});
+
+	it("uses numeric-string coordinates when merging read chunks", () => {
+		const args = { path: "a.ts", offset: "10", limit: "5" };
+		const ctx = context({ toolCallId: "r1", args });
+		const first = dispatchCall("read", args, theme, ctx);
+		chunkResult("r1", "a.ts", 5);
+		closeActiveBatch();
+		const second = chunkCall("a.ts", "r2", 15, 5);
+		expect(second.component.render(80)).toEqual([]);
+		chunkResult("r2", "a.ts", 5);
+		expect(plain(first.render(80)).join("\n")).toContain("a.ts:10-19");
+		expect(plain(first.render(80)).join("\n")).toContain("2 chunks");
+	});
+
 	it("merges continuation chunks across message boundaries into one expanding line", () => {
 		const r1 = chunkCall("chat.ts", "r1", 525, 180);
 		chunkResult("r1", "chat.ts", 180);

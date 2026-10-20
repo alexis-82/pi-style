@@ -194,6 +194,15 @@ describe("identity-certified compatibility probe", () => {
 		expect(bundledKeys).toHaveLength(targetSpecs.length - 1);
 	});
 
+	it("carries both Pi 1.2 artifact identities forward to Pi 1.3", () => {
+		expect(SUPPORTED_PI_VERSIONS).toContain("1.3.0");
+		for (const identities of Object.values(KNOWN_NATIVE_IDENTITIES)) {
+			const previous = identities.filter((identity) => identity.versions.includes("1.2.0"));
+			expect(previous).toHaveLength(2);
+			expect(identities.filter((identity) => identity.versions.includes("1.3.0"))).toEqual(previous);
+		}
+	});
+
 	it("records every attempted subtype and delegates real native targets", () => {
 		initTheme("dark", false);
 		const markers = new Set<string>();

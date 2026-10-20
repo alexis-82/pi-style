@@ -26,6 +26,7 @@ import {
 	type BoxedToolResult,
 	displayPath,
 	noteExecutionStart,
+	parseReadLineNumber,
 	pathRangeDetail,
 	truncationOutputLines,
 } from "./shared.js";
@@ -36,7 +37,8 @@ const READ_META: BatchToolMeta = Object.freeze({
 });
 
 function toLineNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined;
+	const number = parseReadLineNumber(value);
+	return number !== undefined && number >= 1 ? Math.floor(number) : undefined;
 }
 
 /** Chunk coordinates of one read call — the ADR 0010 merge key (`path` is the
