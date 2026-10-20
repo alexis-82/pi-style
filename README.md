@@ -116,6 +116,16 @@ The full schema, precedence, persistence, and migration policy live in [`docs/CO
 
 ### CLI flags
 
+Disable pi-style for one process only (nothing is persisted):
+
+```bash
+pi --disable-pi-style
+```
+
+This registers only the disable flag and skips all pi-style mutations, core patches, tools, commands, and hooks. Omit it on the next launch for normal behavior. There are no aliases, environment variables, host detection, or persistent settings for this flag. Like Pi boolean flags, any `=value` form (even `--disable-pi-style=false`) counts as presence. Put it before a standalone `--`; arguments after `--` are not flags.
+
+Package themes are still discovered by Pi independently of extension activation. The extension must be loaded to register the flag: do not combine it with `--no-extensions` (or otherwise exclude pi-style), which leaves the flag unrecognized.
+
 Tier C surfaces are immutable session authorizations, not persisted config:
 
 ```bash

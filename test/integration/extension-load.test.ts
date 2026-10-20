@@ -1,3 +1,4 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executePiStyleCommand } from "../../extension-src/pi-style/app/command-service.js";
@@ -16,6 +17,7 @@ import {
 	getCompatibilityRecords,
 } from "../../extension-src/pi-style/pi/compatibility-registry.js";
 import piStyleExtension from "../../extension-src/pi-style/pi/index.js";
+import * as sessionCoordinator from "../../extension-src/pi-style/pi/session-coordinator.js";
 import { createPiStyleSessionCoordinator } from "../../extension-src/pi-style/pi/session-coordinator.js";
 import { stripAnsi, visibleWidth } from "../../extension-src/pi-style/shared/ansi.js";
 import { FakePiHost } from "../helpers/fake-pi-host.js";
@@ -68,6 +70,43 @@ describe("pi-style extension lifecycle foundation", () => {
 			setToolsRenderConfig(original);
 		}
 	});
+
+	it.each(["--disable-pi-style", "--disable-pi-style=false"])(
+		"registers only the disable flag with no side effects for %s",
+		(flag) => {
+			const argv = process.argv;
+			const registerFlag = vi.fn();
+			const createCoordinator = vi.spyOn(sessionCoordinator, "createPiStyleSessionCoordinator");
+			const prototypes = targetSpecs.map((spec) => Object.getOwnPropertyDescriptors(spec.target));
+			const toolsConfig = { ...getToolsRenderConfig() };
+			const generation = currentGeneration();
+			// Any API access other than flag registration (including getFlag) fails.
+			const pi = new Proxy(
+				{ registerFlag },
+				{
+					get(target, key) {
+						if (key === "registerFlag") return target.registerFlag;
+						throw new Error(`Unexpected API access: ${String(key)}`);
+					},
+				},
+			) as unknown as ExtensionAPI;
+			try {
+				process.argv = ["node", "pi", flag];
+				piStyleExtension(pi);
+				expect(registerFlag.mock.calls).toEqual([
+					["disable-pi-style", { type: "boolean", description: "Disable pi-style for this process" }],
+				]);
+				expect(createCoordinator).not.toHaveBeenCalled();
+				expect(targetSpecs.map((spec) => Object.getOwnPropertyDescriptors(spec.target))).toEqual(prototypes);
+				expect(getToolsRenderConfig()).toEqual(toolsConfig);
+				expect(currentGeneration()).toBe(generation);
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				process.argv = argv;
+				createCoordinator.mockRestore();
+			}
+		},
+	);
 
 	it("loads and registers lifecycle handlers without pre-session resources or UI", () => {
 		const host = new FakePiHost();

@@ -27,6 +27,7 @@ import {
 	registerTurnFromMessage,
 } from "../features/tools/boxed/turn-summary.js";
 import { requestToolPresentationRender } from "../features/tools/index.js";
+import { isPiStyleDisabled } from "./cli-flags.js";
 import { registerPiStyleCommand } from "./commands.js";
 import { parseEditorColor, savedEditorColor } from "./editor-color.js";
 import { type CompatibilityTestHooks, createPiStyleSessionCoordinator } from "./session-coordinator.js";
@@ -79,6 +80,10 @@ export function __setCompatibilityTestHooks(hooks: CompatibilityTestHooks): () =
 
 /** Thin Pi adapter: register flags, commands, and forward lifecycle events. */
 export default function piStyleExtension(pi: ExtensionAPI): void {
+	pi.registerFlag("disable-pi-style", { type: "boolean", description: "Disable pi-style for this process" });
+	// Pi resolves CLI flag values after loading factories, so getFlag is too early here.
+	if (isPiStyleDisabled(process.argv.slice(2))) return;
+
 	// The core/message/tool surfaces are default-on (identity-certified per surface by
 	// name/arity/source fingerprint, graceful native fallback for any surface whose
 	// runtime identity is not recorded, conflict-preserving). The OFF switch is the
