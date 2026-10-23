@@ -1,18 +1,20 @@
-# @quandev104/pi-style
+# pi-style (fork)
 
-[![npm](https://img.shields.io/npm/v/@quandev104/pi-style)](https://www.npmjs.com/package/@quandev104/pi-style)
-[![license](https://img.shields.io/npm/l/@quandev104/pi-style)](LICENSE)
+[![license](https://img.shields.io/github/license/alexis-82/pi-style)](LICENSE)
+
+> **Fork of [quanpersie2001/pi-style](https://github.com/quanpersie2001/pi-style)** (`@quandev104/pi-style` on npm). This fork replaces the default status line with a Claude Code–style row — `Model ctx [bar] N% 5h [bar] N% weekly [bar] N% 2h05m project (branch)` — where the 5h/weekly plan usage is read from Anthropic response headers when Pi is logged in with a Claude account. It is not published to npm; install it from GitHub (see [Install](#install)).
 
 > Pi extension for a cohesive, native-layout visual system across the startup view, status line, editor, messages, and tool presentation. Pi keeps ownership of the feed, scrolling, selection, and terminal layout; pi-style installs components into supported surfaces.
 
 ---
 
-![pi-style demo](https://raw.githubusercontent.com/quanpersie2001/pi-style/refs/heads/main/assets/demo.png)
+![pi-style demo](https://i.ibb.co/BVh27D21/Schermata-del-2026-10-23-17-08-01.png)
 
 ---
 
 ## Features
 
+- **Claude-style status line** (fork default) — the `claude_line` segment renders model, context bar, Claude plan 5h/weekly usage bars with the 5h reset countdown, project and Git branch; the plan bars appear after the first response when Pi uses a Claude account login, and stay hidden for API-key or other providers.
 - **Status line** — responsive segment layout (model, thinking, path, Git, context, usage, cost, time, extension statuses) through native widgets above or below the editor.
 - **Editor** — compact/boxed/dock `CustomEditor` treatments with prompt glyph, metadata rows, session name on the top border, and a session-selectable border color independent of thinking effort; preserves Pi keybindings and autocomplete.
 - **Startup** — compact tri-color logo header and optional overlay with System & Context / Available Tools panels, rendered from snapshot data collected before mount.
@@ -36,8 +38,10 @@ All certified surfaces are **on by default**. The single OFF switch is:
 ## Install
 
 ```bash
-pi install npm:@quandev104/pi-style
+pi install git:github.com/alexis-82/pi-style
 ```
+
+Update to the latest commit on `main` with `pi update --extensions`. If the upstream package is installed, remove it first so the two status lines do not conflict: `pi remove npm:@quandev104/pi-style`.
 
 Run a real TUI session with the extension source (development):
 
