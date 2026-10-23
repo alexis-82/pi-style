@@ -21,6 +21,7 @@ export const STATUS_SEGMENT_IDS = [
 	"hostname",
 	"session",
 	"extension_statuses",
+	"claude_line",
 ] as const;
 export type StatusSegmentId = (typeof STATUS_SEGMENT_IDS)[number] | (string & {});
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -58,6 +59,19 @@ export interface UsageSnapshot {
 	readonly streaming: boolean;
 }
 
+export interface RateLimitWindow {
+	/** Utilization of the plan window, 0-100. */
+	readonly percent: number;
+	/** Unix epoch seconds when the window resets, when known. */
+	readonly resetsAt?: number;
+}
+
+/** Subscription plan limits reported by the provider (e.g. Claude account 5h/7d windows). */
+export interface RateLimitsSnapshot {
+	readonly fiveHour?: RateLimitWindow;
+	readonly weekly?: RateLimitWindow;
+}
+
 export interface ExtensionStatus {
 	readonly key: string;
 	readonly value: string;
@@ -74,6 +88,7 @@ export interface StatusSnapshot {
 	readonly git?: GitSnapshot;
 	readonly context?: ContextSnapshot;
 	readonly usage?: UsageSnapshot;
+	readonly rateLimits?: RateLimitsSnapshot;
 	readonly hostname?: string;
 	readonly sessionName?: string | undefined;
 	/** Per-session editor frame color; independent of thinking effort. */
@@ -343,6 +358,38 @@ export function createBuiltinSegments(): ReadonlyMap<StatusSegmentId, StatusSegm
 				.join(" ");
 			return { visible: true, content: theme.apply("muted", text) };
 		}),
+		segment(
+			"claude_line",
+			100,
+			({ snapshot, theme, options }) => {
+				// Mirrors the Claude Code status line: `Model ctx [bar] N% project (git branch)`.
+				const parts: string[] = [];
+				if (snapshot.model) parts.push(`${CL.bold}${CL.white}${snapshot.model}${CL.reset}`);
+				const percent = contextPercent(snapshot.context ?? {});
+				const width = (options.context_bar?.width as number | undefined) ?? CONTEXT_BAR_WIDTH;
+				if (percent !== undefined) parts.push(claudeBarSegment("ctx", percent, width));
+				const { fiveHour, weekly } = snapshot.rateLimits ?? {};
+				if (fiveHour) parts.push(claudeBarSegment("5h", fiveHour.percent, width, CL.yellow, CL.yellowBg));
+				if (weekly) parts.push(claudeBarSegment("weekly", weekly.percent, width, CL.purple, CL.purpleBg));
+				const countdown = fiveHour?.resetsAt === undefined ? "" : resetCountdown(fiveHour.resetsAt);
+				if (countdown) parts.push(`${CL.white}${countdown}${CL.reset}`);
+				const name = snapshot.cwd?.split(/[\\/]/).filter(Boolean).at(-1);
+				const branch = snapshot.git?.available ? snapshot.git.branch : null;
+				let where = name ? `${CL.bold}${CL.cyan}${name}${CL.reset}` : "";
+				if (branch) {
+					const git = `${CL.gray}(${CL.reset}${CL.white}${theme.glyph("git")}${CL.reset} ${CL.green}${branch}${CL.reset}${CL.gray})${CL.reset}`;
+					where = where ? `${where} ${git}` : git;
+				}
+				if (where) parts.push(where);
+				const compact = [
+					snapshot.model ? `${CL.bold}${CL.white}${snapshot.model}${CL.reset}` : "",
+					percent === undefined ? "" : `${CL.bold}${CL.green}${Math.round(percent)}%${CL.reset}`,
+					name ? `${CL.bold}${CL.cyan}${name}${CL.reset}` : "",
+				].filter(Boolean);
+				return { visible: parts.length > 0, content: parts.join(" "), compactContent: compact.join(" ") };
+			},
+			true,
+		),
 	];
 	return new Map(segments.map((item) => [item.id, item]));
 }
@@ -359,6 +406,47 @@ function clockTime(): string {
 }
 
 const CONTEXT_BAR_WIDTH = 10;
+
+/** Fixed 256-color palette shared with the Claude Code status line script. */
+const CL = {
+	reset: "\x1b[0m",
+	bold: "\x1b[1m",
+	gray: "\x1b[90m",
+	white: "\x1b[97m",
+	green: "\x1b[38;5;78m",
+	yellow: "\x1b[38;5;220m",
+	purple: "\x1b[38;5;135m",
+	cyan: "\x1b[38;5;45m",
+	greenBg: "\x1b[48;5;78m",
+	yellowBg: "\x1b[48;5;220m",
+	purpleBg: "\x1b[48;5;135m",
+	emptyBg: "\x1b[48;5;238m",
+} as const;
+
+function claudeBarSegment(
+	label: string,
+	percent: number,
+	width = CONTEXT_BAR_WIDTH,
+	color: string = CL.green,
+	fillBg: string = CL.greenBg,
+): string {
+	const clamped = Math.max(0, Math.min(100, percent));
+	let filled = Math.max(0, Math.min(width, Math.round((clamped / 100) * width)));
+	if (clamped > 0 && filled === 0) filled = 1;
+	const bar =
+		`${CL.gray}[${CL.reset}` +
+		`${fillBg}${" ".repeat(filled)}${CL.reset}` +
+		`${CL.emptyBg}${" ".repeat(width - filled)}${CL.reset}` +
+		`${CL.gray}]${CL.reset}`;
+	return `${CL.white}${label}${CL.reset} ${bar} ${CL.bold}${color}${Math.round(clamped)}%${CL.reset}`;
+}
+
+/** `2h05m` until the given epoch-seconds reset; empty once it has passed. */
+function resetCountdown(resetsAt: number): string {
+	const secs = Math.floor(resetsAt - Date.now() / 1000);
+	if (secs <= 0) return "";
+	return `${Math.floor(secs / 3600)}h${String(Math.floor((secs % 3600) / 60)).padStart(2, "0")}m`;
+}
 
 function contextBar(percent: number, width = CONTEXT_BAR_WIDTH): string {
 	const filled = Math.max(0, Math.min(width, Math.round((percent / 100) * width)));

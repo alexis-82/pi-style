@@ -28,6 +28,7 @@ import {
 } from "../features/tools/boxed/turn-summary.js";
 import { requestToolPresentationRender } from "../features/tools/index.js";
 import { isPiStyleDisabled } from "./cli-flags.js";
+import { rateLimitsFromHeaders } from "./rate-limits.js";
 import { registerPiStyleCommand } from "./commands.js";
 import { parseEditorColor, savedEditorColor } from "./editor-color.js";
 import { type CompatibilityTestHooks, createPiStyleSessionCoordinator } from "./session-coordinator.js";
@@ -208,6 +209,10 @@ export default function piStyleExtension(pi: ExtensionAPI): void {
 		),
 	);
 	pi.on("thinking_level_select", (event) => coordinator.app.update({ thinkingLevel: event.level }, "immediate"));
+	pi.on("after_provider_response", (event) => {
+		const rateLimits = rateLimitsFromHeaders(event.headers ?? {});
+		if (rateLimits) coordinator.app.update({ rateLimits }, "coalesced");
+	});
 	pi.on("session_info_changed", (event) =>
 		coordinator.app.update({ sessionName: event.name }, "coalesced", { refreshExtensionStatuses: true }),
 	);

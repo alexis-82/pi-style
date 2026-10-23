@@ -3,8 +3,8 @@ import type { StatusLayout, StatusSegmentId } from "./status.js";
 
 export const STATUS_PRESETS: Readonly<Record<PresetName, StatusLayout>> = Object.freeze({
 	default: Object.freeze({
-		left: ["path", "git", "context_bar", "cost"],
-		right: ["model_effort"],
+		left: ["claude_line"],
+		right: [],
 		secondary: ["extension_statuses"],
 	}),
 	minimal: Object.freeze({ left: ["path", "git"], right: ["context_pct"], secondary: [] }),

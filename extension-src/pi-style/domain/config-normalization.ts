@@ -18,8 +18,8 @@ export const DEFAULT_CONFIG: NormalizedPiStyleConfig = Object.freeze({
 		enabled: true,
 		separator: "|",
 		layout: Object.freeze({
-			left: ["path", "git", "context_bar", "cost"],
-			right: ["model_effort"],
+			left: ["claude_line"],
+			right: [],
 			secondary: [],
 		}),
 		disabledSegments: [],

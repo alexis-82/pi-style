@@ -559,10 +559,9 @@ describe("configuration control plane and composition", () => {
 		expect(lines.slice(-2)).toEqual(["", ""]);
 		const plain = lines[0] ?? "";
 		const stripped = plain.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
-		expect(stripped).toContain("50% used");
-		// contextBarWidth 6 renders a 6-cell bar: 50% → 3 filled cells. The block is
-		// delimited by the segment separator (no baked-in boundary pipes).
-		expect(stripped).toMatch(/\[█{3}░{3}\] \| 50% used/);
+		// contextBarWidth 6 renders a 6-cell background bar: 50% → 3 filled cells.
+		expect(stripped).toMatch(/ctx \[ {6}\] 50%/);
+		expect(plain).toContain(`${ESC}[48;5;78m   ${ESC}[0m${ESC}[48;5;238m   ${ESC}[0m`);
 	});
 
 	it("keeps print and json sessions inert", () => {

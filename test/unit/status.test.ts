@@ -176,7 +176,7 @@ describe("responsive status renderer", () => {
 		expect(stripAnsi(result.primary)).toBe("🔌 MCP: 1 server enabled pi-rules: 0 rules ✓");
 	});
 
-	it("renders the default layout with a right-aligned model row", () => {
+	it("renders the default Claude-style layout", () => {
 		const config = normalizeConfig({ theme: { nerdFonts: "off" } });
 		const result = renderStatus(
 			config.statusLine.layout,
@@ -201,10 +201,27 @@ describe("responsive status renderer", () => {
 			{ separator: "│", segments: createBuiltinSegments(), theme },
 		);
 		const plain = stripAnsi(result.primary);
-		expect(plain).toMatch(
-			/^pi-style │ ⎇ main \*36 \?9 │ \[█{5}░{5}\] \| 47% used │ \$0\.015 │\s+\(deepseek\) deepseek-v4-flash • high$/,
+		expect(plain).toBe("deepseek-v4-flash ctx [          ] 47% pi-style (⎇ main)");
+	});
+
+	it("adds Claude plan 5h/weekly bars and the reset countdown when rate limits are known", () => {
+		const resetsAt = Math.floor(Date.now() / 1000) + 2 * 3600 + 5 * 60 + 30;
+		const result = renderStatus(
+			{ left: ["claude_line"], right: [], secondary: [] },
+			{
+				model: "Opus 5.5",
+				cwd: "/work/pi-style",
+				context: { percent: 12 },
+				rateLimits: { fiveHour: { percent: 30, resetsAt }, weekly: { percent: 64 } },
+			},
+			160,
+			{ segments: createBuiltinSegments(), theme },
 		);
-		expect(plain).toHaveLength(120);
+		expect(stripAnsi(result.primary)).toBe(
+			"Opus 5.5 ctx [          ] 12% 5h [          ] 30% weekly [          ] 64% 2h05m pi-style",
+		);
+		expect(result.primary).toContain("\x1b[48;5;220m   \x1b[0m");
+		expect(result.primary).toContain("\x1b[48;5;135m      \x1b[0m");
 	});
 
 	it("fits every documented width without exceeding it", () => {
